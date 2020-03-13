@@ -1,0 +1,8 @@
+frequenciesOverTime       Plot frequency of query expressions over time
+frequenciesOverDomains    Box plot frequency of query expressions per topic domain
+conditionsOverTime        Plot frequency of query expressions over time under different conditions
+alternativesOverTime      Plot proportion of alternative spellings/variants over time
+regional                  Map plot regional frequencies of query expression
+mosaicplot                Visualize frequencies of alternative query terms in relation to other variables
+highcharter-example       Visualize frqequencies of optionally alternative terms over time with interactive HTML and JavaScript elements using the package highcharter as wrapper for Highcharts
+writtenVsSpoken           Compare frequencies in written vs. spoken corpora
