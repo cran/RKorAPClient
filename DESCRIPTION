@@ -1,7 +1,7 @@
 Package: RKorAPClient
 Type: Package
 Title: 'KorAP' Web Service Client Package
-Version: 0.5.6
+Version: 0.5.7
 Authors@R: 
     c(person(given = "Marc",
              family = "Kupietz",
@@ -26,18 +26,18 @@ Language: en-US
 License: BSD_2_clause + file LICENSE
 Encoding: UTF-8
 LazyData: false
-RoxygenNote: 7.0.2
+RoxygenNote: 7.1.0
 Imports: R.cache, broom, ggplot2, tibble, magrittr, tidyr, dplyr,
-        purrr, lubridate, curl, highcharter, jsonlite, keyring, plotly,
+        purrr, lubridate, highcharter, jsonlite, keyring, plotly,
         htmlwidgets, utils, httr, methods, PTXQC
 Collate: 'KorAPConnection.R' 'KorAPCorpusStats.R' 'RKorAPClient.R'
         'KorAPQuery.R' 'ci.R' 'highcharter-helper.R' 'misc.R'
         'reexports.R'
 NeedsCompilation: no
-Packaged: 2020-03-04 20:33:58 UTC; kupietz
+Packaged: 2020-03-17 11:46:38 UTC; kupietz
 Author: Marc Kupietz [aut, cre],
   Nils Diewald [ctb],
   Leibniz Institute for the German Language [cph, fnd]
 Maintainer: Marc Kupietz <kupietz@ids-mannheim.de>
 Repository: CRAN
-Date/Publication: 2020-03-13 09:00:03 UTC
+Date/Publication: 2020-03-17 12:50:02 UTC
