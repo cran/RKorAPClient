@@ -1,3 +1,16 @@
+# RKorAPClient 0.5.9
+
+## Changes
+- The local cache is now notified of new corpus index revisions when new connections are established. As a side effect, with v0.5.9 existing caches are invalidated. 
+
+# RKorAPClient 0.5.8
+
+## Changes
+- New boolean parameter `smooth` added to `hc_freq_by_year_ci`
+
+## Bug Fixes
+- Fixed issues with [dplyr 1.0](https://github.com/tidyverse/dplyr/releases/tag/v1.0.0)
+
 # RKorAPClient 0.5.7
 
 ## Changes

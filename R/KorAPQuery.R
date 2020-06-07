@@ -68,15 +68,6 @@ setGeneric("frequencyQuery", function(kco, ...)  standardGeneric("frequencyQuery
 
 maxResultsPerPage <- 50
 
-QueryParameterFromUrl <- function(url, parameter) {
-  regex <- paste0(".*[?&]", parameter, "=([^&]*).*")
-  if (grepl(regex, url)) {
-    return(gsub(regex, '\\1', url, perl = TRUE))
-  } else {
-    return("")
-  }
-}
-
 ## quiets concerns of R CMD check re: the .'s that appear in pipelines
 if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
 
@@ -122,7 +113,7 @@ if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
 #'   mutate(year = lubridate::year(pubDate)) %>%
 #'   dplyr::select(year) %>%
 #'   group_by(year) %>%
-#'   summarise(Count = n()) %>%
+#'   summarise(Count = dplyr::n()) %>%
 #'   mutate(Freq = mapply(function(f, y)
 #'     f / corpusStats(kco, paste("pubDate in", y))@tokens, Count, year)) %>%
 #'   dplyr::select(-Count) %>%
@@ -239,8 +230,7 @@ setMethod("corpusQuery", "KorAPConnection",
 #'
 #' @aliases fetchNext
 #' @rdname KorAPQuery-class
-#' @importFrom purrr map_dfr
-#' @importFrom dplyr rowwise bind_rows select
+#' @importFrom dplyr rowwise bind_rows select summarise n
 #' @export
 setMethod("fetchNext", "KorAPQuery", function(kqo, offset = kqo@nextStartIndex, maxFetch = maxResultsPerPage, verbose = kqo@korapConnection@verbose) {
   if (kqo@totalResults == 0 || offset >= kqo@totalResults) {
@@ -261,9 +251,7 @@ setMethod("fetchNext", "KorAPQuery", function(kqo, offset = kqo@nextStartIndex, 
       }
     }
     currentMatches <-
-      kqo@fields %>%
-      map_dfr( ~tibble(!!.x := logical() ) ) %>%
-      bind_rows(res$matches) %>%
+      res$matches %>%
       dplyr::select(kqo@fields)
     if ("pubDate" %in% kqo@fields) {
       currentMatches$pubDate <-  currentMatches$pubDate %>% as.Date(format = "%Y-%m-%d")
@@ -372,9 +360,9 @@ format.KorAPQuery <- function(x, ...) {
   cat("<KorAPQuery>\n")
   q <- x
   aurl = parse_url(q@request)
-  cat("         Query: ", aurl$query$q, "\n")
-  if (!is.null(aurl$query$vc) && aurl$query$vc != "") {
-    cat("Virtual corpus: ", aurl$query$vc, "\n")
+  cat("           Query: ", aurl$query$q, "\n")
+  if (!is.null(aurl$query$cq) && aurl$query$cq != "") {
+    cat("  Virtual corpus: ", aurl$query$cq, "\n")
   }
   if (!is.null(q@collectedMatches)) {
     cat("==============================================================================================================", "\n")
