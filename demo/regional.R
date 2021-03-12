@@ -3,8 +3,6 @@ library(RKorAPClient)
 library(ggplot2)
 library(raster)
 library(broom)
-library(plotly)
-library(htmlwidgets)
 
 devAskNewPage(ask = FALSE)
 mapfile <- "demo/data/cache/map-v2.rds"
@@ -58,14 +56,8 @@ geoDistrib <- function(query, kco = new("KorAPConnection", verbose=TRUE)) {
     }
   }
   plot <- updatePlot(query, map, regions)
-  pp <- ggplotly(plot)
-  for (i in 1:nrow(regions)) {
-    j <- grep(paste0(regions$region[i], "\""), pp$x$data, perl=TRUE)
-    pp$x$data[[j]]$customdata <- regions[i,]$url
-  }
-  ppp <- onRender(pp, "function(el, x) { el.on('plotly_click', function(d) { var url=d.points[0].data.customdata; window.open(url, 'korap') })}")
-  print(ppp)
-  pp
+  print(plot)
+  plot
 }
 
 updatePlot <- function(query, map, regions) {

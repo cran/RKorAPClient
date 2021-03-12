@@ -1,8 +1,17 @@
+#' Helper functions for producing highcharts
+#'
+#' @param hc  highchart
+#'
+#' @name highcharter-helpers
+NULL
+#' NULL
+
 #' Experimental: Plot interactive frequency by year graphs with confidence intervals using highcharter
 #'
 #' Experimental convenience function for plotting typical frequency by year graphs with confidence intervals using highcharter.
 #' \bold{Warning:} This function may be moved to a new package.
 #'
+#' @rdname highcharter-helpers
 #' @import highcharter
 #' @importFrom tibble add_column
 #' @export
@@ -75,14 +84,7 @@ hc_freq_by_year_ci <- function(df, as.alternatives = FALSE,
     ) %>%
     hc_xAxis(allowDecimals=FALSE) %>%
     hc_add_theme(hc_theme_google(colors=palette)) %>%
-    hc_plotOptions(
-      series = list(enabled = TRUE),
-      spline = list(cursor = 'pointer', point = list(events = list(
-        click = JS("function() { window.open(this.click, 'korap'); }")
-      ))),
-      line = list(cursor = 'pointer', point = list(events = list(
-        click = JS("function() { window.open(this.click, 'korap'); }")
-      )))) %>%
+    hc_add_onclick_korap_search() %>%
     hc_credits(enabled = TRUE,
                text = "KorAP R Client Package",
                href = "https://github.com/KorAP/RKorAPClient/") %>%
@@ -125,7 +127,7 @@ hc_add_series_korap_frequencies <- function(hc, df, smooth = FALSE,
         year = dat$year,
         value = if (as.alternatives) dat$f else dat$ipm,
         count = dat$totalResults,
-        click = dat$webUIRequestUrl
+        webUIRequestUrl = dat$webUIRequestUrl
       ),
       hcaes(year, value),
       type = type,
@@ -149,6 +151,42 @@ hc_add_series_korap_frequencies <- function(hc, df, smooth = FALSE,
     index <- index+1
   }
   hc
+}
+
+#' Add KorAP search click events to highchart
+#'
+#' @description
+#' Adds on-click events to data points of highcharts that were constructed with
+#' \code{\link{frequencyQuery}} or \code{\link{collocationScoreQuery}}. Clicks on data points
+#' then launch KorAP web UI queries for the given query term and virtual corpus in
+#' a separate tab.
+#'
+#' @rdname highcharter-helpers
+#' @export
+#'
+#' @examples
+#' \donttest{
+#' library(highcharter)
+#' library(tidyr)
+#'
+#' new("KorAPConnection", verbose = TRUE) %>%
+#'   collocationScoreQuery("Team", "agil", vc = paste("pubDate in", c(2014:2018)),
+#'                         lemmatizeNodeQuery = TRUE, lemmatizeCollocateQuery = TRUE) %>%
+#'                          pivot_longer(c("O", "E")) %>%
+#'   hchart(type="spline", hcaes(label, value, group=name)) %>%
+#'   hc_add_onclick_korap_search()
+#' }
+#'
+hc_add_onclick_korap_search <- function(hc) {
+  hc_plotOptions(
+    hc,
+    series = list(enabled = TRUE),
+    spline = list(cursor = 'pointer', point = list(events = list(
+      click = JS("function() { window.open(this.webUIRequestUrl, 'korap'); }")
+    ))),
+    line = list(cursor = 'pointer', point = list(events = list(
+      click = JS("function() { window.open(this.webUIRequestUrl, 'korap'); }")
+    ))))
 }
 
 .onAttach <- function(libname = find.package("RKorAPClient"),

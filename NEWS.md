@@ -1,3 +1,18 @@
+# RKorAPClient 0.6.1
+
+## Changes
+- fixes calculation of logDice coefficient
+- updated Readme.md
+
+# RKorAPClient 0.6.0
+
+## Changes
+- collocationScoreQuery method added
+- hc_add_onclick_korap_search function added
+- shiny web application demo added
+- support for orphaned plotly package dropped
+- improved documentation structure
+
 # RKorAPClient 0.5.9
 
 ## Changes

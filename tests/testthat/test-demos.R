@@ -117,26 +117,10 @@ test_that("Multiple conditions and queries over time highcharter example works",
   expect_true(all(class(hc) %in% c("highchart", "htmlwidget")))
 })
 
-test_that("Conditions over time ggplotly example works", {
-  kco <- new("KorAPConnection")
-  p <- expand_grid(
-    condition = c("textDomain = /Wirtschaft.*/",
-                  "textDomain != /Wirtschaft.*/"),
-    year = (2010:2013)
-  ) %>%
-    cbind(frequencyQuery(
-      kco,
-      "[tt/l=Heuschrecke]",
-      paste(.$condition, "& pubDate in", .$year)
-    ))  %>%
-    ipm() %>%
-    ggplot(aes(
-      x = year,
-      y = ipm,
-      fill = condition,
-      colour = condition
-    )) +
-    geom_freq_by_year_ci()
-  pp <- ggplotly(p)
-  expect_error(print(pp), NA)
+test_that("collocationScoreQuery works iwth hchart and hc_add_onclick_korap_search", {
+  kco <- new("KorAPConnection", cache = TRUE, verbose = TRUE)
+  df <- collocationScoreQuery(kco,"Ameisenplage", "heimgesucht", leftContextSize=0, rightContextSize=1)
+  hc <- hchart(df, type="spline", hcaes(label, logDice))
+  hc <- hc_add_onclick_korap_search(hc)
+  expect_true(all(class(hc) %in% c("highchart", "htmlwidget")))
 })

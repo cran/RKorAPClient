@@ -1,12 +1,13 @@
 #' Class KorAPQuery
 #'
-#' \code{KorAPQuery} objects represent the current state of a query to a KorAP server.
-#' New \code{KorAPQuery} objects are typically created by the \code{\link{corpusQuery}} method.
+#' This class provides methods to perform different kinds of queries on the KorAP API server.
+#' \code{KorAPQuery} objects, which are typically created by the \code{\link{corpusQuery}} method,
+#' represent the current state of a query to a KorAP server.
 #'
 #' @include KorAPConnection.R
 #' @import httr
 #'
-#' @include RKorAPClient.R
+#' @include RKorAPClient-package.R
 
 #' @export
 KorAPQuery <- setClass("KorAPQuery", slots = c(
@@ -65,15 +66,14 @@ setGeneric("fetchAll", function(kqo, ...)  standardGeneric("fetchAll") )
 setGeneric("fetchNext", function(kqo, ...)  standardGeneric("fetchNext") )
 setGeneric("fetchRest", function(kqo, ...)  standardGeneric("fetchRest") )
 setGeneric("frequencyQuery", function(kco, ...)  standardGeneric("frequencyQuery") )
+setGeneric("collocationScoreQuery", function(kco, ...)  standardGeneric("collocationScoreQuery") )
 
 maxResultsPerPage <- 50
 
 ## quiets concerns of R CMD check re: the .'s that appear in pipelines
 if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
 
-#' Method corpusQuery
-#'
-#' Perform a corpus query via a connection to a KorAP-API-server.
+#' \bold{\code{corpusQuery}} performs a corpus query via a connection to a KorAP-API-server
 #'
 #' @param kco \code{\link{KorAPConnection}} object (obtained e.g. from \code{new("KorAPConnection")}
 #' @param query string that contains the corpus query. The query language depends on the \code{ql} parameter. Either \code{query} must be provided or \code{KorAPUrl}.
@@ -290,6 +290,8 @@ setMethod("fetchNext", "KorAPQuery", function(kqo, offset = kqo@nextStartIndex, 
 
 #' Fetch all results of a KorAP query.
 #'
+#' \bold{\code{fetchAll}} fetches allf results of a KorAP query.
+#'
 #' @examples
 #' \donttest{
 #' q <- new("KorAPConnection") %>% corpusQuery("Ameisenplage") %>% fetchAll()
@@ -381,3 +383,119 @@ format.KorAPQuery <- function(x, ...) {
 setMethod("show", "KorAPQuery", function(object) {
   format(object)
 })
+
+
+
+lemmatizeWordQuery <- function(w) {
+  paste0('[tt/l=', w, ']')
+}
+
+#' Query frequencies of a node and a collocate and calculate collocation association scores
+#'
+#' \bold{\code{collocationScoreQuery}} computes various collocation association scores
+#' based on \code{\link{frequencyQuery}}s for a target word and a collocate.
+#'
+#' @aliases collocationScoreQuery
+#' @rdname KorAPQuery-class
+#'
+#' @param kco \code{\link{KorAPConnection}} object (obtained e.g. from \code{new("KorAPConnection")}
+#' @param node               target word
+#' @param collocate          collocate of target word
+#' @param vc                 string describing the virtual corpus in which the query should be performed. An empty string (default) means the whole corpus, as far as it is license-wise accessible.
+#' @param lemmatizeNodeQuery      logical, set to TRUE if node query should be lemmatized, i.e. x -> [tt/l=x]
+#' @param lemmatizeCollocateQuery logical, set to TRUE if collocate query should be lemmatized, i.e. x -> [tt/l=x]
+#' @param leftContextSize    size of the left context window
+#' @param rightContextSize   size of the right context window
+#' @param scoreFunctions     named list of score functions of the form function(O1, O2, O, N, E, window_size), see e.g. \link{pmi}
+#' @param smoothingConstant  smoothing constant will be added to all observed values
+#'
+#' @return tibble with query KorAP web request URL, all observed values and association scores
+#'
+#' @examples
+#' \donttest{
+#' new("KorAPConnection", verbose = TRUE) %>%
+#'   collocationScoreQuery("Grund", "triftiger")
+#' }
+#'
+#' \donttest{
+#' new("KorAPConnection", verbose = TRUE) %>%
+#' collocationScoreQuery("Grund", c("guter", "triftiger"),
+#'    scoreFunctions = list(localMI = function(O1, O2, O, N, E, window_size) { O * log2(O/E) }) )
+#' }
+#'
+#' \donttest{
+#' library(highcharter)
+#' library(tidyr)
+#' new("KorAPConnection", verbose = TRUE) %>%
+#'   collocationScoreQuery("Team", "agil", vc = paste("pubDate in", c(2014:2018)),
+#'                         lemmatizeNodeQuery = TRUE, lemmatizeCollocateQuery = TRUE) %>%
+#'                          pivot_longer(14:last_col(), names_to = "measure", values_to = "score") %>%
+#'   hchart(type="spline", hcaes(label, score, group=measure)) %>%
+#'   hc_add_onclick_korap_search()
+#' }
+#'
+#' @importFrom tidyr pivot_longer
+#' @export
+setMethod("collocationScoreQuery", "KorAPConnection",
+          function(kco,
+                   node,
+                   collocate,
+                   vc = "",
+                   lemmatizeNodeQuery = FALSE,
+                   lemmatizeCollocateQuery = FALSE,
+                   leftContextSize = 5,
+                   rightContextSize = 5,
+                   scoreFunctions = defaultAssociationScoreFunctions(),
+                   smoothingConstant = .5
+                   ) {
+            # https://stackoverflow.com/questions/8096313/no-visible-binding-for-global-variable-note-in-r-cmd-check
+            O1 <- O2 <- O <- N <- E <- w <- 0
+
+            if (leftContextSize <= 0 && rightContextSize <= 0) {
+              stop("At least one of leftContextSize and rightContextSize must be > 0",
+                   call. = FALSE)
+            }
+
+            if (lemmatizeNodeQuery) {
+              node <- lemmatizeWordQuery(node)
+            }
+
+            if (lemmatizeCollocateQuery) {
+              collocate <- lemmatizeWordQuery(collocate)
+            }
+
+            query <- ""
+
+            if (leftContextSize > 0) {
+              query <-
+                paste0(collocate,
+                       if (leftContextSize > 1) paste0(" []{0,", leftContextSize - 1, "} ") else " ",
+                       node,
+                       if (rightContextSize > 0)  " | ")
+            }
+
+            if (rightContextSize > 0) {
+              query <-
+                paste0(query, node,
+                       if (rightContextSize > 1) paste0(" []{0,", rightContextSize - 1, "} ") else " ", collocate)
+            }
+
+
+            tibble(
+              node = node,
+              collocate = collocate,
+              label = queryStringToLabel(vc),
+              vc = vc,
+              webUIRequestUrl = frequencyQuery(kco, query, vc)$webUIRequestUrl,
+              w = leftContextSize + rightContextSize,
+              leftContextSize,
+              rightContextSize,
+              N  = frequencyQuery(kco, node, vc)$total + smoothingConstant,
+              O = as.double(frequencyQuery(kco, query, vc)$totalResults) + smoothingConstant,
+              O1 = frequencyQuery(kco, node, vc)$totalResults + smoothingConstant,
+              O2 = frequencyQuery(kco, collocate, vc)$totalResults + smoothingConstant,
+              E = w * as.double(O1) * O2 / N
+            ) %>%
+              mutate(!!! lapply(scoreFunctions, mapply, .$O1, .$O2, .$O, .$N, .$E, .$w))
+
+          })

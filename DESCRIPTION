@@ -1,7 +1,7 @@
 Package: RKorAPClient
 Type: Package
 Title: 'KorAP' Web Service Client Package
-Version: 0.5.9
+Version: 0.6.1
 Authors@R: 
     c(person(given = "Marc",
              family = "Kupietz",
@@ -24,21 +24,25 @@ Description: A client package that makes the 'KorAP' web service API accessible 
 Depends: R (>= 3.5.0)
 Language: en-US
 License: BSD_2_clause + file LICENSE
+URL: https://github.com/KorAP/RKorAPClient/,
+        https://korap.ids-mannheim.de/,
+        https://www1.ids-mannheim.de/kl/projekte/korap.html
+BugReports: https://github.com/KorAP/RKorAPClient/issues
 Encoding: UTF-8
 LazyData: false
-RoxygenNote: 7.1.0
+RoxygenNote: 7.1.1
 Imports: R.cache, broom, ggplot2, tibble, magrittr, tidyr, dplyr,
-        lubridate, highcharter, jsonlite, keyring, plotly, htmlwidgets,
-        utils, httr, methods, PTXQC
+        lubridate, highcharter, jsonlite, keyring, utils, httr,
+        methods, PTXQC
 Suggests: testthat
-Collate: 'KorAPConnection.R' 'KorAPCorpusStats.R' 'RKorAPClient.R'
-        'KorAPQuery.R' 'ci.R' 'highcharter-helper.R' 'misc.R'
-        'reexports.R'
+Collate: 'KorAPConnection.R' 'KorAPCorpusStats.R'
+        'RKorAPClient-package.R' 'KorAPQuery.R' 'association-scores.R'
+        'ci.R' 'highcharter-helper.R' 'misc.R' 'reexports.R'
 NeedsCompilation: no
-Packaged: 2020-06-05 15:13:06 UTC; kupietz
+Packaged: 2021-03-12 10:33:08 UTC; kupietz
 Author: Marc Kupietz [aut, cre],
   Nils Diewald [ctb],
   Leibniz Institute for the German Language [cph, fnd]
 Maintainer: Marc Kupietz <kupietz@ids-mannheim.de>
 Repository: CRAN
-Date/Publication: 2020-06-07 23:10:02 UTC
+Date/Publication: 2021-03-12 22:10:11 UTC
