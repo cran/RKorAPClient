@@ -54,15 +54,14 @@ In order to make the API
 token persistent for the currently used \code{KorAPUrl} (you can have one
 token per KorAPUrl / KorAP server instance), use
 \code{persistAccessToken(kco)}. This will store it in your keyring using the
-\code{\link{keyring}} package. Subsequent new("KorAPConnection") calls will
+\code{\link[=keyring]{keyring()}} package. Subsequent new("KorAPConnection") calls will
 then automatically retrieve the token from your keying. To stop using a
 persisted token, call \code{clearAccessToken(kco)}. Please note that for
 DeReKo, authorized queries will behave differently inside and outside the
 IDS, because of the special license situation. This concerns also cached
 results which do not take into account from where a request was issued. If
-you experience problems or unexpected results, please try \code{kco <-
-new("KorAPConnection", cache=FALSE)} or use
-\code{\link{clearCache}} to clear the cache completely.}
+you experience problems or unexpected results, please try \code{kco <- new("KorAPConnection", cache=FALSE)} or use
+\code{\link[=clearCache]{clearCache()}} to clear the cache completely.}
 
 \item{userAgent}{user agent string.}
 
@@ -72,7 +71,7 @@ new("KorAPConnection", cache=FALSE)} or use
 be verbose.}
 
 \item{cache}{logical. Decides if API calls are cached locally. You can clear
-the cache with \code{\link{clearCache}()}.}
+the cache with \code{\link[=clearCache]{clearCache()}}.}
 
 \item{kco}{KorAPConnection object}
 
@@ -85,21 +84,23 @@ the cache with \code{\link{clearCache}()}.}
 \item{object}{KorAPConnection object}
 }
 \value{
-\code{\link{KorAPConnection}} object that can be used e.g. with
-  \code{\link{corpusQuery}}
+\code{\link[=KorAPConnection]{KorAPConnection()}} object that can be used e.g. with
+\code{\link[=corpusQuery]{corpusQuery()}}
 }
 \description{
 \code{KorAPConnection} objects represent the connection to a KorAP server.
 New \code{KorAPConnection} objects can be created by \code{new("KorAPConnection")}.
 }
 \examples{
-\donttest{
+\dontrun{
+
 kcon <- new("KorAPConnection", verbose = TRUE)
 kq <- corpusQuery(kcon, "Ameisenplage")
 kq <- fetchAll(kq)
 }
 
 \dontrun{
+
 kcon <- new("KorAPConnection", verbose = TRUE, accessToken="e739u6eOzkwADQPdVChxFg")
 kq <- corpusQuery(kcon, "Ameisenplage", metadataOnly=FALSE)
 kq <- fetchAll(kq)
@@ -107,11 +108,13 @@ kq@collectedMatches$snippet
 }
 
 \dontrun{
+
 kco <- new("KorAPConnection", accessToken="e739u6eOzkwADQPdVChxFg")
 persistAccessToken(kco)
 }
 
 \dontrun{
+
 kco <- new("KorAPConnection")
 clearAccessToken(kco)
 }
