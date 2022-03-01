@@ -18,9 +18,15 @@
   ignoreCollocateCase = FALSE,
   withinSpan = ifelse(exactFrequencies, "base/s=s", ""),
   exactFrequencies = TRUE,
-  stopwords = RKorAPClient::synsemanticStopwords(),
+  stopwords = append(RKorAPClient::synsemanticStopwords(), node),
   seed = 7,
   expand = length(vc) != length(node),
+  maxRecurse = 0,
+  addExamples = FALSE,
+  thresholdScore = "logDice",
+  threshold = 2,
+  localStopwords = c(),
+  collocateFilterRegex = "^[:alnum:]+-?[:alnum:]*$",
   ...
 )
 }
@@ -54,6 +60,18 @@
 \item{seed}{seed for random page collecting order}
 
 \item{expand}{if TRUE, \code{node} and \code{vc} parameters are expanded to all of their combinations}
+
+\item{maxRecurse}{apply collocation analysis recursively \code{maxRecurse} times}
+
+\item{addExamples}{If TRUE, examples for instances of collocations will be added in a column \code{example}. This makes a difference in particular if \code{node} is given as a lemma query.}
+
+\item{thresholdScore}{association score function (see \code{\link{association-score-functions}}) to use for computing the threshold that is applied for recursive collocation analysis calls}
+
+\item{threshold}{minimum value of \code{thresholdScore} function call to apply collocation analysis recursively}
+
+\item{localStopwords}{vector of stopwords that will not be considered as collocates in the current function call, but that will not be passed to recursive calls}
+
+\item{collocateFilterRegex}{allow only collocates matching the regular expression}
 
 \item{...}{more arguments will be passed to \code{\link[=collocationScoreQuery]{collocationScoreQuery()}}}
 }

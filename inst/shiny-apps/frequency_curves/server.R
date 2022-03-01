@@ -3,7 +3,7 @@ hc_theme <- if(require(idsThemeR)) {
 } else {
   hc_theme_hcrt()
 }
-rsr <- new("KorAPConnection", verbose = TRUE)
+rsr <- new("KorAPConnection", verbose = TRUE, accessToken = NULL)
 vc <- "(textType = /Zeit.*/ | textTypeRef=Plenarprotokoll) & availability!=QAO-NC-LOC:ids & creationDate in"
 years <- c(2005:2020)
 from <- 2005
@@ -56,7 +56,7 @@ plotHighchart <- function(query = c("Tolpatsch", "Tollpatsch"),
 generateHighchart <- function(wordParam, from=2005, to=2020) {
   years <<- c(from:to)
   if (wordParam != "") {
-    query <<- str_split(wordParam, " *, *", simplify = TRUE)
+    query <<- strsplit(wordParam, " *, *")
     withProgress(message = 'Berechnung läuft: ', value = 0, {
       hc <- plotHighchart(query, vc , years)
     })

@@ -34,6 +34,12 @@ setGeneric("collocationAnalysis", function(kco, ...)  standardGeneric("collocati
 #' @param exactFrequencies       if FALSE, extrapolate observed co-occurrence frequencies from frequencies in search hits sample, otherwise retrieve exact co-occurrence frequencies
 #' @param seed                   seed for random page collecting order
 #' @param expand                 if TRUE, `node` and `vc` parameters are expanded to all of their combinations
+#' @param maxRecurse             apply collocation analysis recursively `maxRecurse` times
+#' @param addExamples            If TRUE, examples for instances of collocations will be added in a column `example`. This makes a difference in particular if `node` is given as a lemma query.
+#' @param thresholdScore         association score function (see \code{\link{association-score-functions}}) to use for computing the threshold that is applied for recursive collocation analysis calls
+#' @param threshold              minimum value of `thresholdScore` function call to apply collocation analysis recursively
+#' @param localStopwords         vector of stopwords that will not be considered as collocates in the current function call, but that will not be passed to recursive calls
+#' @param collocateFilterRegex   allow only collocates matching the regular expression
 #' @param ...                    more arguments will be passed to [collocationScoreQuery()]
 #' @inheritParams collocationScoreQuery,KorAPConnection-method
 #' @return Tibble with top collocates, association scores, corresponding URLs for web user interface queries, etc.
@@ -76,9 +82,15 @@ setMethod("collocationAnalysis", "KorAPConnection",
                    ignoreCollocateCase = FALSE,
                    withinSpan = ifelse(exactFrequencies, "base/s=s", ""),
                    exactFrequencies = TRUE,
-                   stopwords = RKorAPClient::synsemanticStopwords(),
+                   stopwords = append(RKorAPClient::synsemanticStopwords(), node),
                    seed = 7,
                    expand = length(vc) != length(node),
+                   maxRecurse = 0,
+                   addExamples = FALSE,
+                   thresholdScore = "logDice",
+                   threshold = 2.0,
+                   localStopwords = c(),
+                   collocateFilterRegex = '^[:alnum:]+-?[:alnum:]*$',
                    ...) {
             # https://stackoverflow.com/questions/8096313/no-visible-binding-for-global-variable-note-in-r-cmd-check
             word <- frequency <- NULL
@@ -93,7 +105,7 @@ setMethod("collocationAnalysis", "KorAPConnection",
               node <- lemmatizeWordQuery(node)
             }
 
-            if (length(node) > 1 || length(vc) > 1) {
+            result <- if (length(node) > 1 || length(vc) > 1) {
               grid <- if (expand) expand_grid(node=node, vc=vc) else tibble(node=node, vc=vc)
               purrr::pmap(grid, function(node, vc, ...)
                         collocationAnalysis(kco,
@@ -108,6 +120,8 @@ setMethod("collocationAnalysis", "KorAPConnection",
                                             withinSpan = withinSpan,
                                             exactFrequencies = exactFrequencies,
                                             stopwords = stopwords,
+                                            addExamples = TRUE,
+                                            localStopwords = localStopwords,
                                             seed = seed,
                                             expand = expand,
                                             ...) ) %>%
@@ -123,7 +137,7 @@ setMethod("collocationAnalysis", "KorAPConnection",
                 rightContextSize = rightContextSize,
                 searchHitsSampleLimit = searchHitsSampleLimit,
                 ignoreCollocateCase = ignoreCollocateCase,
-                stopwords = stopwords,
+                stopwords = append(stopwords, localStopwords),
                 ...
               )
 
@@ -149,8 +163,65 @@ setMethod("collocationAnalysis", "KorAPConnection",
                 tibble()
               }
             }
+            if (maxRecurse > 0 & length(result) > 0 && any(!!as.name(thresholdScore) >= threshold)) {
+              recurseWith <- result %>%
+                filter(!!as.name(thresholdScore) >= threshold)
+              result <- collocationAnalysis(
+                kco,
+                node = paste0("(", buildCollocationQuery(
+                  removeWithinSpan(recurseWith$node, withinSpan),
+                  recurseWith$collocate,
+                  leftContextSize = leftContextSize,
+                  rightContextSize = rightContextSize,
+                  withinSpan = ""
+                ), ")"),
+                vc = vc,
+                minOccur = minOccur,
+                leftContextSize = leftContextSize,
+                rightContextSize = rightContextSize,
+                withinSpan = withinSpan,
+                maxRecurse = maxRecurse - 1,
+                stopwords = stopwords,
+                localStopwords = recurseWith$collocate,
+                exactFrequencies = exactFrequencies,
+                searchHitsSampleLimit = searchHitsSampleLimit,
+                topCollocatesLimit = topCollocatesLimit,
+                addExamples = FALSE
+              ) %>%
+                bind_rows(result) %>%
+                filter(logDice >= 2) %>%
+                filter(.$O >= minOccur) %>%
+                dplyr::arrange(dplyr::desc(logDice))
+            }
+            if (addExamples && length(result) > 0) {
+              result$query <-buildCollocationQuery(
+                result$node,
+                result$collocate,
+                leftContextSize = leftContextSize,
+                rightContextSize = rightContextSize,
+                withinSpan = ""
+              )
+              result$example <- findExample(
+                kco,
+                query = result$query,
+                vc = result$vc
+              )
+            }
+            result
           }
 )
+
+# #' @export
+removeWithinSpan <- function(query, withinSpan) {
+  if (withinSpan == "") {
+    return(query)
+  }
+  needle <- sprintf("^\\(contains\\(<%s>, ?(.*)\\){2}$", withinSpan)
+  res <- gsub(needle, '\\1', query)
+  needle <- sprintf("^contains\\(<%s>, ?(.*)\\)$", withinSpan)
+  res <- gsub(needle, '\\1', res)
+  return(res)
+}
 
 #' @importFrom magrittr debug_pipe
 #' @importFrom stringr str_match str_split str_detect
@@ -163,6 +234,7 @@ snippet2FreqTable <- function(snippet,
                               ignoreCollocateCase = FALSE,
                               stopwords = c(),
                               tokenizeRegex = "([! )(\uc2\uab,.:?\u201e\u201c\'\"]+|&quot;)",
+                              collocateFilterRegex =  '^[:alnum:]+-?[:alnum:]*$',
                               oldTable = data.frame(word = rep(NA, 1), frequency = rep(NA, 1)),
                               verbose = TRUE) {
   word <- NULL # https://stackoverflow.com/questions/8096313/no-visible-binding-for-global-variable-note-in-r-cmd-check
@@ -171,12 +243,13 @@ snippet2FreqTable <- function(snippet,
   if (length(snippet) < 1) {
     dplyr::tibble(word=c(), frequency=c())
   } else if (length(snippet) > 1) {
-    log.info(verbose, paste("Joinging", length(snippet), "kwics\n"))
+    log.info(verbose, paste("Joining", length(snippet), "kwics\n"))
     for (s in snippet) {
       oldTable <- snippet2FreqTable(
         s,
         leftContextSize = leftContextSize,
         rightContextSize = rightContextSize,
+        collocateFilterRegex = collocateFilterRegex,
         oldTable = oldTable,
         stopwords = stopwords
       )
@@ -213,7 +286,7 @@ snippet2FreqTable <- function(snippet,
       table(c(left, right)) %>%
         dplyr::as_tibble(.name_repair = "minimal") %>%
         dplyr::rename(word = 1, frequency = 2) %>%
-        dplyr::filter(str_detect(word, '^[:alnum:]+-?[:alnum:]*$')) %>%
+        dplyr::filter(str_detect(word, collocateFilterRegex)) %>%
         dplyr::anti_join(stopwordsTable, by="word")  %>%
         dplyr::bind_rows(oldTable)
     }
@@ -255,7 +328,9 @@ synsemanticStopwords <- function(...) {
     "dem",
     "nicht",
     "ein",
+    "Ein",
     "eine",
+    "Eine",
     "es",
     "auch",
     "an",
@@ -290,6 +365,35 @@ synsemanticStopwords <- function(...) {
   return(res)
 }
 
+
+# #' @export
+findExample <-
+  function(kco,
+           query,
+           vc = "",
+           matchOnly = TRUE) {
+    out <- character(length = length(query))
+
+    if (length(vc) < length(query))
+      vc <- rep(vc, length(query))
+
+    for (i in seq_along(query)) {
+      q <- corpusQuery(kco, paste0("(", query[i], ")"), vc = vc[i], metadataOnly = FALSE)
+      if (q@totalResults > 0) {
+        q <- fetchNext(q, maxFetch=50, randomizePageOrder=F)
+        example <- as.character((q@collectedMatches)$snippet[1])
+        out[i] <- if(matchOnly) {
+          gsub('.*<mark>(.+)</mark>.*', '\\1', example)
+        } else {
+          stringr::str_replace(example, '<[^>]*>', '')
+        }
+      } else {
+        out[i] = ""
+      }
+    }
+    out
+  }
+
 collocatesQuery <-
   function(kco,
            query,
@@ -313,6 +417,7 @@ collocatesQuery <-
                         rightContextSize = rightContextSize,
                         ignoreCollocateCase = ignoreCollocateCase,
                         stopwords = stopwords,
+                        ...,
                         verbose = kco@verbose) %>%
         mutate(frequency = frequency * q@totalResults / min(q@totalResults, searchHitsSampleLimit)) %>%
         filter(frequency >= minOccur)

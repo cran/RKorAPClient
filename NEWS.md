@@ -1,3 +1,14 @@
+# RKorAPClient 0.7.2 (CRAN release)
+
+- now fails gracefully with an informative message if the API server is not accessible
+- fixed shiny demo
+- `hc_add_onclick_korap_search()` now also works with bar, column and pie highcharts
+- new parameters added to `collocationAnalysis` function:
+  - `maxRecurse` - apply collocation analysis recursively `maxRecurse` times
+  - `addExamples` -  If `TRUE`, examples for instances of collocations will be added in a column `example`. This makes a difference in particular if 'node' is given as a lemma query.
+  - `thresholdScore` - association score function to use for computing the threshold that is applied for recursive collocation analysis calls
+  - `threshold`- minimum value of `thresholdScore` function call to apply collocation analysis recursively
+
 # RKorAPClient 0.7.1 (CRAN release)
 - documentation migrated to roxygen2md
 - Some examples in the documentation are now wrapped with:
