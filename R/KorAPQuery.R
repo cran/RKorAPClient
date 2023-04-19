@@ -87,13 +87,24 @@ if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
 #' @param query string that contains the corpus query. The query language depends on the `ql` parameter. Either `query` must be provided or `KorAPUrl`.
 #' @param vc string describing the virtual corpus in which the query should be performed. An empty string (default) means the whole corpus, as far as it is license-wise accessible.
 #' @param KorAPUrl instead of providing the query and vc string parameters, you can also simply copy a KorAP query URL from your browser and use it here (and in `KorAPConnection`) to provide all necessary information for the query.
-#' @param metadataOnly logical that determines whether queries should return only metadata without any snippets. This can also be useful to prevent access rewrites. Note that the default value is TRUE, unless the connection is authorized (currently not possible).
+#' @param metadataOnly logical that determines whether queries should return only metadata without any snippets. This can also be useful to prevent access rewrites. Note that the default value is TRUE.
+#'    If you want your corpus queries to return not only metadata, but also KWICS, you need to authorize
+#'    your RKorAPClient application as explained in the
+#'   [authorization section](https://github.com/KorAP/RKorAPClient#authorization)
+#'   of the RKorAPClient Readme on GitHub and set the `metadataOnly` parameter to
+#'   `FALSE`.
 #' @param ql string to choose the query language (see [section on Query Parameters](https://github.com/KorAP/Kustvakt/wiki/Service:-Search-GET#user-content-parameters) in the Kustvakt-Wiki for possible values.
 #' @param fields (meta)data fields that will be fetched for every match.
 #' @param accessRewriteFatal abort if query or given vc had to be rewritten due to insufficient rights (not yet implemented).
 #' @param verbose print some info
 #' @param as.df return result as data frame instead of as S4 object?
 #' @param expand logical that decides if `query` and `vc` parameters are expanded to all of their combinations
+#' @param context string that specifies the size of the left and the right context returned in `snippet`
+#'        (provided that `metadataOnly` is set to `false` and that the necessary access right are  met).
+#'        The format of the context size specifcation (e.g. `3-token,3-token`) is described in the [Service: Search GET documentation of the Kustvakt Wiki](https://github.com/KorAP/Kustvakt/wiki/Service:-Search-GET).
+#'        If the parameter is not set, the default context size secification of the KorAP server instance will be used.
+#'        Note that you cannot overrule the maximum context size set in the KorAP server instance,
+#'        as this is typically legally motivated.
 #' @return Depending on the `as.df` parameter, a table or a [KorAPQuery()] object that, among other information, contains the total number of results in `@totalResults`. The resulting object can be used to fetch all query results (with [fetchAll()]) or the next page of results (with [fetchNext()]).
 #' A corresponding URL to be used within a web browser is contained in `@webUIRequestUrl`
 #' Please make sure to check `$collection$rewrites` to see if any unforeseen access rewrites of the query's virtual corpus had to be performed.
@@ -161,7 +172,8 @@ setMethod("corpusQuery", "KorAPConnection",
                    accessRewriteFatal = TRUE,
                    verbose = kco@verbose,
                    expand = length(vc) != length(query),
-          as.df = FALSE) {
+          as.df = FALSE,
+          context = NULL) {
   if (length(query) > 1 || length(vc) > 1) {
     grid <- if (expand) expand_grid(query=query, vc=vc) else tibble(query=query, vc=vc)
     purrr::pmap(grid, function(query, vc, ...)
@@ -175,6 +187,7 @@ setMethod("corpusQuery", "KorAPConnection",
       request <-
         paste0('?q=',
                url_encode(enc2utf8(query)),
+               ifelse (!metadataOnly && ! is.null(context) && context !=  '', paste0('&context=', url_encode(enc2utf8(context))), ''),
                ifelse (vc != '', paste0('&cq=', url_encode(enc2utf8(vc))), ''), '&ql=', ql)
       webUIRequestUrl <- paste0(kco@KorAPUrl, request)
       requestUrl <- paste0(
@@ -185,20 +198,20 @@ setMethod("corpusQuery", "KorAPConnection",
         paste(fields, collapse = ","),
         if (metadataOnly) '&access-rewrite-disabled=true' else ''
       )
-      log.info(verbose, "Searching \"", query, "\" in \"", vc, "\"", sep =
+      log_info(verbose, "Searching \"", query, "\" in \"", vc, "\"", sep =
                  "")
       res = apiCall(kco, paste0(requestUrl, '&count=0'))
       if (is.null(res)) {
-        log.info(verbose, " [failed]\n")
+        log_info(verbose, " [failed]\n")
         message("API call failed.")
         totalResults <- 0
       } else {
         totalResults <-res$meta$totalResults
-        log.info(verbose, ": ", totalResults, " hits")
+        log_info(verbose, ": ", totalResults, " hits")
         if(!is.null(res$meta$cached))
-          log.info(verbose, " [cached]\n")
+          log_info(verbose, " [cached]\n")
         else
-          log.info(verbose, ", took ", res$meta$benchmark, "\n", sep = "")
+          log_info(verbose, ", took ", res$meta$benchmark, "\n", sep = "")
       }
       if (as.df)
         data.frame(

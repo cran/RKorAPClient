@@ -50,7 +50,8 @@
   accessRewriteFatal = TRUE,
   verbose = kco@verbose,
   expand = length(vc) != length(query),
-  as.df = FALSE
+  as.df = FALSE,
+  context = NULL
 )
 
 \S4method{fetchNext}{KorAPQuery}(
@@ -123,7 +124,12 @@ buildWebUIRequestUrl(
 
 \item{KorAPUrl}{instead of providing the query and vc string parameters, you can also simply copy a KorAP query URL from your browser and use it here (and in \code{KorAPConnection}) to provide all necessary information for the query.}
 
-\item{metadataOnly}{logical that determines whether queries should return only metadata without any snippets. This can also be useful to prevent access rewrites. Note that the default value is TRUE, unless the connection is authorized (currently not possible).}
+\item{metadataOnly}{logical that determines whether queries should return only metadata without any snippets. This can also be useful to prevent access rewrites. Note that the default value is TRUE.
+If you want your corpus queries to return not only metadata, but also KWICS, you need to authorize
+your RKorAPClient application as explained in the
+\href{https://github.com/KorAP/RKorAPClient#authorization}{authorization section}
+of the RKorAPClient Readme on GitHub and set the \code{metadataOnly} parameter to
+\code{FALSE}.}
 
 \item{ql}{string to choose the query language (see \href{https://github.com/KorAP/Kustvakt/wiki/Service:-Search-GET#user-content-parameters}{section on Query Parameters} in the Kustvakt-Wiki for possible values.}
 
@@ -134,6 +140,13 @@ buildWebUIRequestUrl(
 \item{expand}{logical that decides if \code{query} and \code{vc} parameters are expanded to all of their combinations}
 
 \item{as.df}{return result as data frame instead of as S4 object?}
+
+\item{context}{string that specifies the size of the left and the right context returned in \code{snippet}
+(provided that \code{metadataOnly} is set to \code{false} and that the necessary access right are  met).
+The format of the context size specifcation (e.g. \verb{3-token,3-token}) is described in the \href{https://github.com/KorAP/Kustvakt/wiki/Service:-Search-GET}{Service: Search GET documentation of the Kustvakt Wiki}.
+If the parameter is not set, the default context size secification of the KorAP server instance will be used.
+Note that you cannot overrule the maximum context size set in the KorAP server instance,
+as this is typically legally motivated.}
 
 \item{kqo}{object obtained from \code{\link[=corpusQuery]{corpusQuery()}}}
 

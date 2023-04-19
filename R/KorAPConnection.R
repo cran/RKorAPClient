@@ -30,13 +30,29 @@ KorAPConnection <- setClass("KorAPConnection", slots=c(KorAPUrl="character", api
 #' @param KorAPUrl URL of the web user interface of the KorAP server instance you want to access.
 #' @param apiVersion which version of KorAP's API you want to connect to.
 #' @param apiUrl URL of the KorAP web service.
-#' @param accessToken OAuth2 access token. To use authorization based on an access token
-#'   in subsequent queries, initialize your KorAP connection with
-#'   `kco <- new("KorAPConnection", accessToken="<access token>")`.
+#' @param accessToken OAuth2 access token. For queries on corpus parts with restricted
+#'   access (e.g. textual queries on IPR protected data), you need to authorize
+#'   your application with an access token.
+#'   How to obtain an access token for the DeReKo KorAP instance is explained in the
+#'   [authorization section](https://github.com/KorAP/RKorAPClient#authorization)
+#'   of the RKorAPClient Readme on GitHub.
+#'
+#'   To use authorization based on an access token
+#'   in subsequent queries, initialize your KorAP connection with:
+#'
+#'   ```
+#'   kco <- new("KorAPConnection", accessToken="<access token>")
+#'   ```
+#'
 #'   In order to make the API
 #'   token persistent for the currently used `KorAPUrl` (you can have one
-#'   token per KorAPUrl / KorAP server instance), use
-#'   `persistAccessToken(kco)`. This will store it in your keyring using the
+#'   token per KorAPUrl / KorAP server instance), use:
+#'
+#'   ```
+#'   persistAccessToken(kco)
+#'   ```
+#'
+#'   This will store it in your keyring using the
 #'   [keyring()] package. Subsequent new("KorAPConnection") calls will
 #'   then automatically retrieve the token from your keying. To stop using a
 #'   persisted token, call `clearAccessToken(kco)`. Please note that for
@@ -46,6 +62,7 @@ KorAPConnection <- setClass("KorAPConnection", slots=c(KorAPUrl="character", api
 #'   you experience problems or unexpected results, please try `kco <-
 #'   new("KorAPConnection", cache=FALSE)` or use
 #'   [clearCache()] to clear the cache completely.
+#'
 #' @param userAgent user agent string.
 #' @param timeout tineout in seconds for API requests (this does not influence server internal timeouts).
 #' @param verbose logical that decides whether following operations will default to
@@ -232,11 +249,12 @@ setMethod("apiCall", "KorAPConnection",  function(kco, url, json = TRUE, getHead
   }
   if (json || status_code(resp) != 200) {
     if (json && !http_type(resp) %in% c("application/json", "application/ld+json")) {
-      # message("API did not return json")
+      message("API did not return json")
       return(invisible(NULL))
     }
-    result <- jsonlite::fromJSON(content(resp, "text", encoding = "UTF-8"))
-    if (!is.null(result$warnings)) {
+
+    result <- tryCatch(jsonlite::fromJSON(content(resp, "text", encoding = "UTF-8")), error = function(e) {return(NULL)})
+    if (!is.atomic(result) && !is.null(result$warnings)) {
       msg <- if (nrow(result$warnings) > 1)
         sapply(result$warnings, function(warning) paste(sprintf("%s: %s", warning[1], warning[2]), sep="\n"))
       else
@@ -249,7 +267,7 @@ setMethod("apiCall", "KorAPConnection",  function(kco, url, json = TRUE, getHead
       cat("\n")
     }
     msg <- sprintf("%s KorAP API request failed", status_code(resp))
-    if (!is.null(result$errors)) {
+    if (!is.atomic(result) && !is.null(result$errors)) {
       errormsg <- unlist(result$errors)
       msg <- sprintf("%s: %s %s", msg, errormsg[5], errormsg[2])
     }
