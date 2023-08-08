@@ -1,7 +1,7 @@
 Package: RKorAPClient
 Type: Package
 Title: 'KorAP' Web Service Client Package
-Version: 0.7.6
+Version: 0.7.7
 Authors@R: 
     c(person(given = "Marc",
              family = "Kupietz",
@@ -40,10 +40,10 @@ Collate: 'KorAPConnection.R' 'KorAPCorpusStats.R'
         'hc_add_onclick_korap_search.R' 'hc_freq_by_year_ci.R' 'misc.R'
         'reexports.R'
 NeedsCompilation: no
-Packaged: 2023-04-18 16:41:37 UTC; kupietz
+Packaged: 2023-07-29 14:47:56 UTC; kupietz
 Author: Marc Kupietz [aut, cre],
   Nils Diewald [ctb],
   Leibniz Institute for the German Language [cph, fnd]
 Maintainer: Marc Kupietz <kupietz@ids-mannheim.de>
 Repository: CRAN
-Date/Publication: 2023-04-19 07:40:08 UTC
+Date/Publication: 2023-08-08 19:30:02 UTC
