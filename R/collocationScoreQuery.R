@@ -24,7 +24,7 @@ if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
 #' @param smoothingConstant  smoothing constant will be added to all observed values
 #' @param observed           if collocation frequencies are already known (or estimated from a sample) they can be passed as a vector here, otherwise: NA
 #' @param ignoreCollocateCase     logical, set to TRUE if collocate case should be ignored
-#' @param withinSpan         KorAP span specification for collocations to be searched within
+#' @param withinSpan         KorAP span specification (see <https://korap.ids-mannheim.de/doc/ql/poliqarp-plus?embedded=true#spans>) for collocations to be searched within. Defaults to `base/s=s`.
 #'
 #' @return tibble with query KorAP web request URL, all observed values and association scores
 #'
@@ -90,6 +90,7 @@ setMethod("collocationScoreQuery", "KorAPConnection",
               collocate = collocate,
               label = queryStringToLabel(vc),
               vc = vc,
+              query = query,
               webUIRequestUrl = if (is.na(observed[1]))
                 frequencyQuery(kco, query, vc)$webUIRequestUrl
               else
@@ -180,3 +181,44 @@ lemmatizeWordQuery <- function(w, apply = TRUE) {
   else
     w
 }
+
+#' Merge duplicate collocate rows and re-calculate association scores and urls
+#'
+#' @param ... tibbles with collocate rows returned from [collocationAnalysis()]
+#' @return tibble with unique collocate rows
+#'
+#' @importFrom dplyr bind_rows group_by summarise ungroup mutate across first everything
+#' @importFrom httr parse_url build_url
+#' @export
+mergeDuplicateCollocates <- function(...) {
+  # https://stackoverflow.com/questions/8096313/no-visible-binding-for-global-variable-note-in-r-cmd-check
+  O1 <- O2 <- O <- N <- E <- w <- leftContextSize <- rightContextSize <- collocate <- tmp_positions <- 0
+
+  combined_df <- bind_rows(...)
+
+  korapUrl <- parse_url(combined_df$webUIRequestUrl[1])
+  korapUrl$query <- ''
+  korapUrl <- build_url(korapUrl)
+
+  # Group by collocate and summarize
+  combined_df %>%
+    group_by(collocate, O2, N) %>%
+    summarise(
+      O = sum(O),
+      O1 = sum(O1),
+      leftContextSize = sum(leftContextSize),
+      rightContextSize = sum(rightContextSize),
+      w = sum(w),
+      E = sum(w) * sum(O1) * first(O2) / first(N),
+      logDice = logDice(sum(O1), first(O2), sum(O), first(N), E = sum(w) * sum(O1) * first(O2) / first(N), sum(w)),
+      pmi = pmi(sum(O1), first(O2), sum(O), first(N), E = sum(w) * sum(O1) * first(O2) / first(N), sum(w)),
+      mi2 = mi2(sum(O1), first(O2), sum(O), first(N), E = sum(w) * sum(O1) * first(O2) / first(N), sum(w)),
+      mi3 = mi3(sum(O1), first(O2), sum(O), first(N), E = sum(w) * sum(O1) * first(O2) / first(N), sum(w)),
+      ll = RKorAPClient::ll(sum(O1), first(O2), sum(O), first(N), E = sum(w) * sum(O1) * first(O2) / first(N), sum(w)),
+      query = paste(query, collapse = " | "),
+      webUIRequestUrl = buildWebUIRequestUrlFromString(korapUrl, query = paste(query, collapse = " | "), vc = first(vc)),
+      across(everything(), first),
+    ) %>%
+    ungroup()
+}
+
