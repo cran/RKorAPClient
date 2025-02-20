@@ -5,10 +5,6 @@
 \alias{KorAPConnection-class}
 \alias{KorAPConnection}
 \alias{initialize,KorAPConnection-method}
-\alias{persistAccessToken,KorAPConnection-method}
-\alias{persistAccessToken}
-\alias{clearAccessToken,KorAPConnection-method}
-\alias{clearAccessToken}
 \alias{apiCall,KorAPConnection-method}
 \alias{apiCall}
 \alias{clearCache,KorAPConnection-method}
@@ -22,15 +18,14 @@
   apiVersion = "v1.0",
   apiUrl,
   accessToken = getAccessToken(KorAPUrl),
+  oauthClient = NULL,
+  oauthScope = "search match_info",
+  authorizationSupported = TRUE,
   userAgent = "R-KorAP-Client",
   timeout = 240,
   verbose = FALSE,
   cache = TRUE
 )
-
-\S4method{persistAccessToken}{KorAPConnection}(kco, accessToken = kco@accessToken)
-
-\S4method{clearAccessToken}{KorAPConnection}(kco)
 
 \S4method{apiCall}{KorAPConnection}(
   kco,
@@ -57,7 +52,9 @@
 \item{accessToken}{OAuth2 access token. For queries on corpus parts with restricted
 access (e.g. textual queries on IPR protected data), you need to authorize
 your application with an access token.
-How to obtain an access token for the DeReKo KorAP instance is explained in the
+You can obtain an access token in the OAuth settings of your KorAP web interface.
+
+More details are explained in the
 \href{https://github.com/KorAP/RKorAPClient#authorization}{authorization section}
 of the RKorAPClient Readme on GitHub.
 
@@ -82,7 +79,16 @@ DeReKo, authorized queries will behave differently inside and outside the
 IDS, because of the special license situation. This concerns also cached
 results which do not take into account from where a request was issued. If
 you experience problems or unexpected results, please try \code{kco <- new("KorAPConnection", cache=FALSE)} or use
-\code{\link[=clearCache]{clearCache()}} to clear the cache completely.}
+\code{\link[=clearCache]{clearCache()}} to clear the cache completely.
+
+An alternative to using an access token is to use a browser-based oauth2 workflow
+to obtain an access token. This can be done with the \code{\link[=auth]{auth()}} method.}
+
+\item{oauthClient}{OAuth2 client object.}
+
+\item{oauthScope}{OAuth2 scope.}
+
+\item{authorizationSupported}{logical that indicates if authorization is supported/necessary for the current KorAP instance. Automatically set during initialization.}
 
 \item{userAgent}{user agent string.}
 
@@ -98,7 +104,7 @@ the cache with \code{\link[=clearCache]{clearCache()}}.}
 
 \item{url}{request url}
 
-\item{json}{logical that determines if json result is expected}
+\item{json}{logical that determines if JSON result is expected}
 
 \item{getHeaders}{logical that determines if headers and content should be returned (as a list)}
 
@@ -125,9 +131,15 @@ New \code{KorAPConnection} objects can be created by \code{new("KorAPConnection"
 
 \item{\code{accessToken}}{OAuth2 access token.}
 
+\item{\code{oauthClient}}{OAuth2 client object.}
+
+\item{\code{oauthScope}}{OAuth2 scope.}
+
+\item{\code{authorizationSupported}}{logical that indicates if authorization is supported/necessary for the current KorAP instance. Automatically set during initialization.}
+
 \item{\code{userAgent}}{user agent string used for connection the API.}
 
-\item{\code{timeout}}{tineout in seconds for API requests (this does not influence server internal timeouts)}
+\item{\code{timeout}}{timeout in seconds for API requests (this does not influence server internal timeouts)}
 
 \item{\code{verbose}}{logical that decides whether operations will default to be verbose.}
 
@@ -150,18 +162,6 @@ kcon <- new("KorAPConnection", verbose = TRUE, accessToken="e739u6eOzkwADQPdVChx
 kq <- corpusQuery(kcon, "Ameisenplage", metadataOnly=FALSE)
 kq <- fetchAll(kq)
 kq@collectedMatches$snippet
-}
-
-\dontrun{
-
-kco <- new("KorAPConnection", accessToken="e739u6eOzkwADQPdVChxFg")
-persistAccessToken(kco)
-}
-
-\dontrun{
-
-kco <- new("KorAPConnection")
-clearAccessToken(kco)
 }
 
 }

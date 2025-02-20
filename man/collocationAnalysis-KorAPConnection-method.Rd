@@ -79,8 +79,6 @@
 Tibble with top collocates, association scores, corresponding URLs for web user interface queries, etc.
 }
 \description{
-\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#experimental}{\figure{lifecycle-experimental.svg}{options: alt='[Experimental]'}}}{\strong{[Experimental]}}
-
 Performs a collocation analysis for the given node (or query)
 in the given virtual corpus.
 }
@@ -94,8 +92,9 @@ and look for expression-internal collocates using the focus function (see exampl
 To increase speed at the cost of accuracy and possible false negatives,
 you can decrease searchHitsSampleLimit and/or topCollocatesLimit and/or set exactFrequencies to FALSE.
 
-Note that currently not the tokenization provided by the backend, i.e. the corpus itself, is used, but a tinkered one.
-This can also lead to false negatives and to frequencies that differ from corresponding ones acquired via the web
+Note that some outdated non-DeReKo back-ends might not yet support returning tokenized matches (warning issued).
+In this case, the client library will fall back to client-side tokenization which might be slightly less accurate.
+This might lead to false negatives and to frequencies that differ from corresponding ones acquired via the web
 user interface.
 }
 \examples{

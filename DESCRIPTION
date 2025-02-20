@@ -1,7 +1,7 @@
 Package: RKorAPClient
 Type: Package
 Title: 'KorAP' Web Service Client Package
-Version: 0.9.0
+Version: 1.0.0
 Authors@R: 
     c(person(given = "Marc",
              family = "Kupietz",
@@ -21,7 +21,7 @@ Description: A client package that makes the 'KorAP' web service API accessible 
   The 'RKorAPClient' package provides access to 'KorAP' and the corpora behind it for user-created R code,
   as a programmatic alternative to the 'KorAP' web user-interface.
   You can learn more about 'KorAP' and use it directly on 'DeReKo' at <https://korap.ids-mannheim.de/>.
-Depends: R (>= 3.5.0)
+Depends: R (>= 4.1.0)
 Language: en-US
 License: BSD_2_clause + file LICENSE
 URL: https://github.com/KorAP/RKorAPClient/,
@@ -31,19 +31,20 @@ BugReports: https://github.com/KorAP/RKorAPClient/issues
 Encoding: UTF-8
 RoxygenNote: 7.3.2
 Imports: R.cache, broom, ggplot2, tibble, magrittr, tidyr, dplyr,
-        lubridate, highcharter, jsonlite, keyring, utils, httr, curl,
+        lubridate, highcharter, jsonlite, keyring, utils, httr2, curl,
         methods, PTXQC, purrr, stringr, urltools
-Suggests: lifecycle, testthat
+Suggests: lifecycle, testthat, htmlwidgets, rmarkdown, shiny, vcd,
+        kableExtra, knitr, purrrlyr, raster, tidyverse
 Collate: 'KorAPConnection.R' 'KorAPCorpusStats.R'
         'RKorAPClient-package.R' 'KorAPQuery.R' 'association-scores.R'
         'ci.R' 'collocationAnalysis.R' 'collocationScoreQuery.R'
         'hc_add_onclick_korap_search.R' 'hc_freq_by_year_ci.R' 'misc.R'
         'reexports.R' 'textMetadata.R'
 NeedsCompilation: no
-Packaged: 2025-01-10 17:42:42 UTC; kupietz
+Packaged: 2025-02-20 11:05:57 UTC; kupietz
 Author: Marc Kupietz [aut, cre],
   Nils Diewald [ctb],
   Leibniz Institute for the German Language [cph, fnd]
 Maintainer: Marc Kupietz <kupietz@ids-mannheim.de>
 Repository: CRAN
-Date/Publication: 2025-01-10 18:20:08 UTC
+Date/Publication: 2025-02-20 11:20:02 UTC
