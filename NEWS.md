@@ -1,3 +1,13 @@
+# RKorAPClient 1.1.0
+
+- improved documentation, which should be more use case oriented now
+- fixed bug with fetching result pages with an offset >= 10,000 (=1e+05 ...) [issue #25](https://github.com/KorAP/RKorAPClient/issues)
+- timed out corpus queries are no longer cached (see [issue #7](https://github.com/KorAP/RKorAPClient/issues/7))
+- improved stability of `ci` function
+- improved error handling
+- improved logging
+- added ETAs to logging in verboose mode
+
 # RKorAPClient 1.0.0
 
 - Simplified authorization process for accessing restricted data via the new `auth()` function (see `?auth`)

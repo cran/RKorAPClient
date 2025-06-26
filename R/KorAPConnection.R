@@ -5,41 +5,40 @@ setClassUnion("characterOrNULL", c("character", "NULL"))
 setClassUnion("listOrNULL", c("list", "NULL"))
 # setOldClass("httr2_oauth_client")
 
-#' Class KorAPConnection
+#' Connect to KorAP Server
 #'
-#' `KorAPConnection` objects represent the connection to a KorAP server.
-#' New `KorAPConnection` objects can be created by `new("KorAPConnection")`.
+#' `KorAPConnection()` creates a connection to a KorAP server for corpus queries.
+#' This is your starting point for all corpus analysis tasks.
 #'
-#' @import R.cache
-#' @import utils
-#' @import methods
-#' @slot KorAPUrl        URL of the web user interface of the KorAP server used in the connection.
-#' @slot apiVersion      requested KorAP API version.
-#' @slot indexRevision   indexRevision code as reported from API via `X-Index-Revision` HTTP header.
-#' @slot apiUrl          full URL of API including version.
-#' @slot accessToken     OAuth2 access token.
-#' @slot oauthClient     OAuth2 client object.
-#' @slot oauthScope      OAuth2 scope.
-#' @slot authorizationSupported logical that indicates if authorization is supported/necessary for the current KorAP instance. Automatically set during initialization.
-#' @slot userAgent       user agent string used for connection the API.
-#' @slot timeout         timeout in seconds for API requests (this does not influence server internal timeouts)
-#' @slot verbose         logical that decides whether operations will default to be verbose.
-#' @slot cache           logical that decides if API calls are cached locally.
-#' @slot welcome         list containing HTTP response received from KorAP server welcome function.
-
-#' @export
-KorAPConnection <- setClass("KorAPConnection", slots=c(KorAPUrl="character", apiVersion="character", indexRevision="characterOrNULL", apiUrl="character", accessToken="characterOrNULL", oauthClient="ANY", oauthScope="characterOrNULL", authorizationSupported="logical", userAgent="character", timeout="numeric", verbose="logical", cache="logical", welcome="listOrNULL"))
-
-generic_kor_app_id = "99FbPHH7RrN36hbndF7b6f"
-
-kustvakt_redirect_uri = "http://localhost:1410/"
-kustvakt_auth_path = "settings/oauth/authorize"
-
-
-#' @param .Object KorAPConnection object
+#' Use `KorAPConnection()` to connect, then `corpusQuery()` to search, and
+#' `fetchAll()` to retrieve results. For authorized access to restricted corpora,
+#' use `auth()` or provide an `accessToken`.
+#'
+#' @section Basic Workflow:
+#' ```r
+#' # Connect to KorAP
+#' kcon <- KorAPConnection()
+#'
+#' # Search for a term
+#' query <- corpusQuery(kcon, "Ameisenplage")
+#'
+#' # Get all results
+#' results <- fetchAll(query)
+#' ```
+#'
+#' @section Authorization:
+#' For access to restricted corpora, authorize your connection:
+#' ```r
+#' kcon <- KorAPConnection() |> auth()
+#' ```
+#'
 #' @param KorAPUrl URL of the web user interface of the KorAP server instance you want to access.
-#' @param apiVersion which version of KorAP's API you want to connect to.
-#' @param apiUrl URL of the KorAP web service.
+#'   Defaults to the environment variable `KORAP_URL` if set and to the IDS Mannheim KorAP main instance
+#'   to query DeReKo, otherwise. In order to access the KorAP instance at the German
+#'   National Library (DNB) to query the contemporary fiction corpus DeLiKo@@DNB,
+#'   for example, set `KorAPUrl` to <https://korap.dnb.de/>.
+#' @param apiVersion which version of KorAP's API you want to connect to. Defaults to "v1.0".
+#' @param apiUrl URL of the KorAP web service. If not provided, it will be constructed from KorAPUrl and apiVersion.
 #' @param accessToken OAuth2 access token. For queries on corpus parts with restricted
 #'   access (e.g. textual queries on IPR protected data), you need to authorize
 #'   your application with an access token.
@@ -53,7 +52,7 @@ kustvakt_auth_path = "settings/oauth/authorize"
 #'   in subsequent queries, initialize your KorAP connection with:
 #'
 #'   ```
-#'   kco <- new("KorAPConnection", accessToken="<access token>")
+#'   kco <- KorAPConnection(accessToken="<access token>")
 #'   ```
 #'
 #'   In order to make the API
@@ -65,99 +64,120 @@ kustvakt_auth_path = "settings/oauth/authorize"
 #'   ```
 #'
 #'   This will store it in your keyring using the
-#'   [keyring::keyring-package]. Subsequent new("KorAPConnection") calls will
+#'   [keyring::keyring-package]. Subsequent KorAPConnection() calls will
 #'   then automatically retrieve the token from your keying. To stop using a
 #'   persisted token, call `clearAccessToken(kco)`. Please note that for
 #'   DeReKo, authorized queries will behave differently inside and outside the
 #'   IDS, because of the special license situation. This concerns also cached
 #'   results which do not take into account from where a request was issued. If
 #'   you experience problems or unexpected results, please try `kco <-
-#'   new("KorAPConnection", cache=FALSE)` or use
+#'   KorAPConnection(cache=FALSE)` or use
 #'   [clearCache()] to clear the cache completely.
 #'
 #'   An alternative to using an access token is to use a browser-based oauth2 workflow
 #'   to obtain an access token. This can be done with the [auth()] method.
-#'
 #' @param oauthClient     OAuth2 client object.
-#' @param oauthScope      OAuth2 scope.
+#' @param oauthScope OAuth2 scope. Defaults to "search match_info".
 #' @param authorizationSupported logical that indicates if authorization is supported/necessary for the current KorAP instance. Automatically set during initialization.
-#' @param userAgent user agent string.
-#' @param timeout tineout in seconds for API requests (this does not influence server internal timeouts).
+#' @param userAgent user agent string. Defaults to "R-KorAP-Client".
+#' @param timeout timeout in seconds for API requests (this does not influence server internal timeouts). Defaults to 240 seconds.
 #' @param verbose logical that decides whether following operations will default to
-#'   be verbose.
+#'   be verbose. Defaults to FALSE.
 #' @param cache logical that decides if API calls are cached locally. You can clear
-#'   the cache with [clearCache()].
-#' @return [KorAPConnection()] object that can be used e.g. with
-#'   [corpusQuery()]
+#'   the cache with [clearCache()]. Defaults to TRUE.
 #'
-#' @import httr2
-#' @examples
-#' \dontrun{
+#' @return [KorAPConnection()] object that can be used e.g. with [corpusQuery()]
 #'
-#' kcon <- new("KorAPConnection", verbose = TRUE)
-#' kq <- corpusQuery(kcon, "Ameisenplage")
-#' kq <- fetchAll(kq)
-#' }
+#' @details
+#' The KorAPConnection object contains various configuration slots for advanced users:
+#' KorAPUrl (server URL), apiVersion, accessToken (OAuth2 token),
+#' timeout (request timeout), verbose (logging), cache (local caching),
+#' and other technical parameters. Most users can ignore these implementation details.
 #'
-#' \dontrun{
-#'
-#' kcon <- new("KorAPConnection", verbose = TRUE, accessToken="e739u6eOzkwADQPdVChxFg")
-#' kq <- corpusQuery(kcon, "Ameisenplage", metadataOnly=FALSE)
-#' kq <- fetchAll(kq)
-#' kq@collectedMatches$snippet
-#' }
-#'
-#' @rdname KorAPConnection-class
-#' @export
-setMethod("initialize", "KorAPConnection",
-          function(.Object, KorAPUrl = "https://korap.ids-mannheim.de/", apiVersion = 'v1.0', apiUrl, accessToken = getAccessToken(KorAPUrl), oauthClient = NULL, oauthScope = "search match_info", authorizationSupported = TRUE, userAgent = "R-KorAP-Client", timeout=240, verbose = FALSE, cache = TRUE) {
-            .Object <- callNextMethod()
-            m <- regexpr("https?://[^?]+", KorAPUrl, perl = TRUE)
-            .Object@KorAPUrl <- regmatches(KorAPUrl, m)
-            if (!endsWith(.Object@KorAPUrl, '/')) {
-              .Object@KorAPUrl <- paste0(.Object@KorAPUrl, "/")
-            }
-            if (missing(apiUrl)) {
-              .Object@apiUrl = paste0(.Object@KorAPUrl, 'api/', apiVersion, '/')
-            } else {
-              .Object@apiUrl = apiUrl
-            }
-            .Object@accessToken = accessToken
-            .Object@oauthClient = oauthClient
-            .Object@apiVersion = apiVersion
-            .Object@userAgent = userAgent
-            .Object@oauthScope = oauthScope
-            .Object@authorizationSupported = authorizationSupported
-            .Object@timeout = timeout
-            .Object@verbose = verbose
-            .Object@cache = cache
-            .Object@welcome = apiCall(.Object, .Object@apiUrl, json = FALSE, cache = FALSE, getHeaders = TRUE)
-            if (!is.null(.Object@welcome)) {
-              message(.Object@welcome[[2]])
-              resp <- httr2::request(.Object@KorAPUrl) |>
-                httr2::req_url_path_append(kustvakt_auth_path) |>
-                httr2::req_error(is_error = \(resp) FALSE) |>
-                httr2::req_perform()
-              .Object@authorizationSupported = (httr2::resp_status(resp) == 200)
+#' @family initialization functions
+#' @import R.cache
+#' @import utils
+#' @import methods
+#' @include logging.R
 
-              .Object@indexRevision <- .Object@welcome[[1]][["x-index-revision"]]
-            } else {
-              if (grepl(.Object@KorAPUrl, .Object@apiUrl)) {
-                message("Could not connect to KorAP instance ", .Object@KorAPUrl)
-              } else {
-                message("Could not connect to KorAP API at ", .Object@apiUrl)
-              }
-            }
-            .Object
-          })
+#' @export
+KorAPConnection <- setClass("KorAPConnection", slots = c(KorAPUrl = "character", apiVersion = "character", indexRevision = "characterOrNULL", apiUrl = "character", accessToken = "characterOrNULL", oauthClient = "ANY", oauthScope = "characterOrNULL", authorizationSupported = "logical", userAgent = "character", timeout = "numeric", verbose = "logical", cache = "logical", welcome = "listOrNULL"))
+
+generic_kor_app_id <- "99FbPHH7RrN36hbndF7b6f"
+
+kustvakt_redirect_uri <- "http://localhost:1410/"
+kustvakt_auth_path <- "settings/oauth/authorize"
+
+
+#' Initialize KorAPConnection object
+#' @keywords internal
+#' @export
+#'
+setMethod("initialize", "KorAPConnection", function(.Object,
+                                                    KorAPUrl = if (is.null(Sys.getenv("KORAP_URL")) |
+                                                      Sys.getenv("KORAP_URL") == "") {
+                                                      "https://korap.ids-mannheim.de/"
+                                                    } else {
+                                                      Sys.getenv("KORAP_URL")
+                                                    },
+                                                    apiVersion = "v1.0",
+                                                    apiUrl,
+                                                    accessToken = getAccessToken(KorAPUrl),
+                                                    oauthClient = NULL,
+                                                    oauthScope = "search match_info",
+                                                    authorizationSupported = TRUE,
+                                                    userAgent = "R-KorAP-Client",
+                                                    timeout = 240,
+                                                    verbose = FALSE,
+                                                    cache = TRUE) {
+  .Object <- callNextMethod()
+  m <- regexpr("https?://[^?]+", KorAPUrl, perl = TRUE)
+  .Object@KorAPUrl <- regmatches(KorAPUrl, m)
+  if (!endsWith(.Object@KorAPUrl, "/")) {
+    .Object@KorAPUrl <- paste0(.Object@KorAPUrl, "/")
+  }
+  if (missing(apiUrl)) {
+    .Object@apiUrl <- paste0(.Object@KorAPUrl, "api/", apiVersion, "/")
+  } else {
+    .Object@apiUrl <- apiUrl
+  }
+  .Object@accessToken <- accessToken
+  .Object@oauthClient <- oauthClient
+  .Object@apiVersion <- apiVersion
+  .Object@userAgent <- userAgent
+  .Object@oauthScope <- oauthScope
+  .Object@authorizationSupported <- authorizationSupported
+  .Object@timeout <- timeout
+  .Object@verbose <- verbose
+  .Object@cache <- cache
+  .Object@welcome <- apiCall(.Object, .Object@apiUrl, json = FALSE, cache = FALSE, getHeaders = TRUE)
+  if (!is.null(.Object@welcome)) {
+    message(.Object@welcome[[2]])
+    resp <- httr2::request(.Object@KorAPUrl) |>
+      httr2::req_url_path_append(kustvakt_auth_path) |>
+      httr2::req_error(is_error = \(resp) FALSE) |>
+      httr2::req_perform()
+    .Object@authorizationSupported <- (httr2::resp_status(resp) == 200)
+
+    .Object@indexRevision <- .Object@welcome[[1]][["x-index-revision"]]
+  } else {
+    if (grepl(.Object@KorAPUrl, .Object@apiUrl)) {
+      message("Could not connect to KorAP instance ", .Object@KorAPUrl)
+    } else {
+      message("Could not connect to KorAP API at ", .Object@apiUrl)
+    }
+  }
+  .Object
+})
 
 
 accessTokenServiceName <- "RKorAPClientAccessToken"
 
-setGeneric("persistAccessToken", function(kco, ...) standardGeneric("persistAccessToken") )
+setGeneric("persistAccessToken", function(kco, ...) standardGeneric("persistAccessToken"))
 
 #' Persist current access token in keyring
 #'
+#' @family initialization functions
 #' @param kco KorAPConnection object
 #' @param accessToken access token to be persisted. If not supplied, the current access token of the KorAPConnection object will be used.
 #' @return KorAPConnection object.
@@ -169,46 +189,49 @@ setGeneric("persistAccessToken", function(kco, ...) standardGeneric("persistAcce
 #'
 #' @examples
 #' \dontrun{
-#' kco <- new("KorAPConnection", accessToken="e739u6eOzkwADQPdVChxFg")
+#' kco <- KorAPConnection(accessToken = "e739u6eOzkwADQPdVChxFg")
 #' persistAccessToken(kco)
 #'
-#' kco <- new("KorAPConnection") %>% auth(app_id="<my application id>") %>% persistAccessToken()
+#' kco <- KorAPConnection() %>%
+#'   auth(app_id = "<my application id>") %>%
+#'   persistAccessToken()
 #' }
 #'
 #' @seealso [clearAccessToken()], [auth()]
 #'
-setMethod("persistAccessToken", "KorAPConnection",  function(kco, accessToken = kco@accessToken) {
-  if (! is.null(kco@oauthClient)) {
+setMethod("persistAccessToken", "KorAPConnection", function(kco, accessToken = kco@accessToken) {
+  if (!is.null(kco@oauthClient)) {
     warning("Short lived access tokens from a confidential application cannot be persisted.")
     return(kco)
   }
-  if (is.null(accessToken))
+  if (is.null(accessToken)) {
     stop("It seems that you have not supplied any access token that could be persisted.", call. = FALSE)
+  }
 
   kco@accessToken <- accessToken
   key_set_with_value(accessTokenServiceName, kco@KorAPUrl, accessToken)
   return(kco)
 })
 
-setGeneric("clearAccessToken", function(kco) standardGeneric("clearAccessToken") )
+setGeneric("clearAccessToken", function(kco) standardGeneric("clearAccessToken"))
 
 #' Clear access token from keyring and KorAPConnection object
 #'
+#' @family initialization functions
 #' @aliases clearAccessToken
 #' @import keyring
 #' @param kco KorAPConnection object
 #' @return KorAPConnection object with access token set to `NULL`.
 #' @export
 #' @examples
-#'
 #' \dontrun{
-#' kco <- new("KorAPConnection")
+#' kco <- KorAPConnection()
 #' kco <- clearAccessToken(kco)
 #' }
 #'
 #' @seealso [persistAccessToken()]
 #'
-setMethod("clearAccessToken", "KorAPConnection",  function(kco) {
+setMethod("clearAccessToken", "KorAPConnection", function(kco) {
   key_delete(accessTokenServiceName, kco@KorAPUrl)
   kco@accessToken <- NULL
   kco
@@ -216,20 +239,22 @@ setMethod("clearAccessToken", "KorAPConnection",  function(kco) {
 
 
 oauthRefresh <- function(req, client, scope, kco) {
-  httr2::req_oauth_auth_code(req, client,  scope = scope,
-                             auth_url = paste0(kco@KorAPUrl, kustvakt_auth_path),
-                             redirect_uri = kustvakt_redirect_uri,
-                             cache_key = kco@KorAPUrl)
+  httr2::req_oauth_auth_code(req, client,
+    scope = scope,
+    auth_url = paste0(kco@KorAPUrl, kustvakt_auth_path),
+    redirect_uri = kustvakt_redirect_uri,
+    cache_key = kco@KorAPUrl
+  )
 }
 
-setGeneric("auth", function(kco,  app_id = generic_kor_app_id, app_secret = NULL, scope = kco@oauthScope) standardGeneric("auth") )
+setGeneric("auth", function(kco, app_id = generic_kor_app_id, app_secret = NULL, scope = kco@oauthScope) standardGeneric("auth"))
 
 #' Authorize RKorAPClient
 #'
+#' @family initialization functions
 #' @aliases auth
 #'
 #' @description
-#' `r lifecycle::badge("experimental")`
 #'
 #' Authorize RKorAPClient to make KorAP queries and download results on behalf of the user.
 #'
@@ -242,9 +267,10 @@ setGeneric("auth", function(kco,  app_id = generic_kor_app_id, app_secret = NULL
 #' @importFrom httr2 oauth_client oauth_flow_auth_code
 #' @examples
 #' \dontrun{
-#' kco <- new("KorAPConnection", verbose = TRUE) %>% auth()
+#' kco <- KorAPConnection(verbose = TRUE) %>% auth()
 #' df <- collocationAnalysis(kco, "focus([marmot/p=ADJA] {Ameisenplage})",
-#'   leftContextSize=1, rightContextSize=0)
+#'   leftContextSize = 1, rightContextSize = 0
+#' )
 #' }
 #'
 #' @seealso [persistAccessToken()], [clearAccessToken()]
@@ -255,19 +281,22 @@ setMethod("auth", "KorAPConnection", function(kco, app_id = generic_kor_app_id, 
     log_info(kco@verbose, "Authorization is not supported by this KorAP instance.")
     return(kco)
   }
-  if ( kco@KorAPUrl != "https://korap.ids-mannheim.de/" & app_id == generic_kor_app_id) {
+  if (kco@KorAPUrl != "https://korap.ids-mannheim.de/" & app_id == generic_kor_app_id) {
     warning(paste("You can use the default app_id only for the IDS Mannheim KorAP main instance for querying DeReKo. Please provide your own app_id for accesing", kco@KorAPUrl))
     return(kco)
   }
   if (is.null(kco@accessToken) || is.null(kco@welcome)) { # if access token is not set or invalid
-    client <- if (! is.null(kco@oauthClient)) kco@oauthClient else
+    client <- if (!is.null(kco@oauthClient)) {
+      kco@oauthClient
+    } else {
       httr2::oauth_client(
-        id =  app_id,
+        id = app_id,
         secret = app_secret,
         token_url = paste0(kco@apiUrl, "oauth2/token")
       )
+    }
     if (is.null(app_secret)) {
-      kco@accessToken <- ( client |>
+      kco@accessToken <- (client |>
         httr2::oauth_flow_auth_code(
           scope = scope,
           auth_url = paste0(kco@KorAPUrl, kustvakt_auth_path),
@@ -292,14 +321,20 @@ setMethod("auth", "KorAPConnection", function(kco, app_id = generic_kor_app_id, 
 
 #' @import keyring
 getAccessToken <- function(KorAPUrl) {
-    keyList <- tryCatch(withCallingHandlers(key_list(service = accessTokenServiceName),
-                                   warning = function(w) invokeRestart("muffleWarning"),
-                                   error = function(e) return(NULL)),
-                          error = function(e) { })
-  if (KorAPUrl %in% keyList$username)
+  keyList <- tryCatch(
+    withCallingHandlers(key_list(service = accessTokenServiceName),
+      warning = function(w) invokeRestart("muffleWarning"),
+      error = function(e) {
+        return(NULL)
+      }
+    ),
+    error = function(e) { }
+  )
+  if (KorAPUrl %in% keyList$username) {
     key_get(accessTokenServiceName, KorAPUrl)
-  else
+  } else {
     NULL
+  }
 }
 
 
@@ -318,22 +353,25 @@ warnIfNotAuthorized <- function(kco) {
 }
 
 KorAPCacheSubDir <- function() {
-  paste0("RKorAPClient_",
-         gsub(
-           "^([0-9]+\\.[0-9]+).*",
-           "\\1",
-           packageVersion("RKorAPClient"),
-           perl = TRUE
-         ))
+  paste0(
+    "RKorAPClient_",
+    gsub(
+      "^([0-9]+\\.[0-9]+).*",
+      "\\1",
+      packageVersion("RKorAPClient"),
+      perl = TRUE
+    )
+  )
 }
 
-setGeneric("apiCall", function(kco, ...)  standardGeneric("apiCall") )
+setGeneric("apiCall", function(kco, ...) standardGeneric("apiCall"))
 
 ## quiets concerns of R CMD check re: the .'s that appear in pipelines
 utils::globalVariables(c("."))
 
+#' Internal API call method
+#' @keywords internal
 #' @aliases apiCall
-#' @rdname KorAPConnection-class
 #' @param kco KorAPConnection object
 #' @param url request url
 #' @param json logical that determines if JSON result is expected
@@ -363,26 +401,30 @@ setMethod("apiCall", "KorAPConnection", function(kco, url, json = TRUE, getHeade
   # Create the request
   req <- httr2::request(url) |>
     httr2::req_user_agent(kco@userAgent) |>
-    httr2::req_error(is_error = \(resp) FALSE) |>
     httr2::req_timeout(timeout)
 
-  if (! is.null(kco@oauthClient)) {
-    req <-  req |> oauthRefresh(kco@oauthClient, scope = kco@oauthScope, kco)
+  if (!is.null(kco@oauthClient)) {
+    req <- req |> oauthRefresh(kco@oauthClient, scope = kco@oauthScope, kco)
   } else if (!is.null(kco@accessToken)) {
     req <- req |> httr2::req_auth_bearer_token(kco@accessToken)
   }
 
   resp <- tryCatch(req |> httr2::req_perform(),
     error = function(e) {
-      message(e$message, if("parent" %in% names(e)) paste0("\n", e$parent$message) else "")
-      return(NULL)
+      if (is.null(e$resp)) {
+        message(paste("Error: ", e$message, collapse = " "), if ("parent" %in% names(e)) paste0("\n", e$parent$message) else "")
+        return(invisible(NULL))
+      }
+      return(e$resp)
     }
   )
 
-  if (is.null(resp)) return(invisible(NULL))
+  if (is.null(resp)) {
+    return(invisible(NULL))
+  }
 
   if (resp |> httr2::resp_status() != 200) {
-    message("Request failed with status ", resp |> httr2::resp_status(), ": ", resp |> httr2::resp_status_desc())
+    message("Error: Request failed with status ", resp |> httr2::resp_status(), ": ", resp |> httr2::resp_status_desc())
     if (resp |> httr2::resp_content_type() == "application/json") {
       result <- tryCatch(
         resp |> httr2::resp_body_json(),
@@ -399,7 +441,7 @@ setMethod("apiCall", "KorAPConnection", function(kco, url, json = TRUE, getHeade
         } else {
           lapply(errors, function(error) paste(error, collapse = " "))
         }
-        message(paste(warning_msgs, collapse = "\n"))
+        message(paste("Warning: ", warning_msgs, collapse = "\n"))
       }
     }
     return(invisible(NULL))
@@ -429,14 +471,18 @@ setMethod("apiCall", "KorAPConnection", function(kco, url, json = TRUE, getHeade
       } else {
         lapply(warnings, function(warning) paste(warning, collapse = " "))
       }
-      message(paste(warning_msgs, collapse = "\n"))
+      message(paste0("\nWarning: ", paste(warning_msgs, collapse = " ")))
+      if (cache & any(grepl("682", warning_msgs))) {
+        cache <- FALSE
+        log_info(kco@verbose, "Caching will be skipped because of warnings ")
+      }
     }
   } else {
     result <- resp |> httr2::resp_body_string()
   }
 
   # Save to cache if enabled
-  if (cache) {
+  if (cache && resp |> httr2::resp_status() == 200) {
     R.cache::saveCache(result, key = list(url, kco@accessToken, kco@indexRevision), dir = KorAPCacheSubDir(), compress = TRUE)
   }
 
@@ -448,16 +494,30 @@ setMethod("apiCall", "KorAPConnection", function(kco, url, json = TRUE, getHeade
   }
 })
 
-setGeneric("clearCache", function(kco)  standardGeneric("clearCache") )
+setGeneric("clearCache", function(kco) standardGeneric("clearCache"))
 
+#' Clear local cache
+#'
+#' Clears the local cache of API responses for the current RKorAPClient version.
+#' Useful when you want to force fresh data retrieval or free up disk space.
+#'
+#' @family connection-initialization
+#' @param kco KorAPConnection object
+#' @return Invisible NULL (function called for side effects)
+#' @examples
+#' \dontrun{
+#' kco <- KorAPConnection()
+#' clearCache(kco)
+#' }
+#'
 #' @aliases clearCache
-#' @rdname KorAPConnection-class
 #' @export
-setMethod("clearCache", "KorAPConnection",  function(kco) {
-  R.cache::clearCache(dir=KorAPCacheSubDir())
+setMethod("clearCache", "KorAPConnection", function(kco) {
+  R.cache::clearCache(dir = KorAPCacheSubDir())
 })
 
-#' @rdname KorAPConnection-class
+#' Display KorAPConnection object
+#' @keywords internal
 #' @param object KorAPConnection object
 #' @export
 setMethod("show", "KorAPConnection", function(object) {
@@ -467,9 +527,9 @@ setMethod("show", "KorAPConnection", function(object) {
 
 ##' Funtion KorAPConnection()
 ##'
-##' Wrappper function for new("KorAPConnection")
+##' Wrappper function for KorAPConnection()
 ##'
 ##' @rdname KorAPConnection-constructor
 ##' @name KorAPConnection-constructor
 ##' @export
-## XKorAPConnection <- function(...) new("KorAPConnection", ...)
+## XKorAPConnection <- function(...) KorAPConnection(...)

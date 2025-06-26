@@ -17,13 +17,18 @@ KorAPConnection object with access token set to \code{NULL}.
 Clear access token from keyring and KorAPConnection object
 }
 \examples{
-
 \dontrun{
-kco <- new("KorAPConnection")
+kco <- KorAPConnection()
 kco <- clearAccessToken(kco)
 }
 
 }
 \seealso{
 \code{\link[=persistAccessToken]{persistAccessToken()}}
+
+Other initialization functions: 
+\code{\link{KorAPConnection-class}},
+\code{\link{auth,KorAPConnection-method}},
+\code{\link{persistAccessToken,KorAPConnection-method}}
 }
+\concept{initialization functions}

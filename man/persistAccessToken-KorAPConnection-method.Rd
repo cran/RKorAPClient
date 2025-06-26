@@ -20,13 +20,21 @@ Persist current access token in keyring
 }
 \examples{
 \dontrun{
-kco <- new("KorAPConnection", accessToken="e739u6eOzkwADQPdVChxFg")
+kco <- KorAPConnection(accessToken = "e739u6eOzkwADQPdVChxFg")
 persistAccessToken(kco)
 
-kco <- new("KorAPConnection") \%>\% auth(app_id="<my application id>") \%>\% persistAccessToken()
+kco <- KorAPConnection() \%>\%
+  auth(app_id = "<my application id>") \%>\%
+  persistAccessToken()
 }
 
 }
 \seealso{
 \code{\link[=clearAccessToken]{clearAccessToken()}}, \code{\link[=auth]{auth()}}
+
+Other initialization functions: 
+\code{\link{KorAPConnection-class}},
+\code{\link{auth,KorAPConnection-method}},
+\code{\link{clearAccessToken,KorAPConnection-method}}
 }
+\concept{initialization functions}

@@ -8,7 +8,7 @@
 \S4method{textMetadata}{KorAPConnection}(kco, textSigle, verbose = kco@verbose)
 }
 \arguments{
-\item{kco}{\code{\link[=KorAPConnection]{KorAPConnection()}} object (obtained e.g. from \code{new("KorAPConnection")})}
+\item{kco}{\code{\link[=KorAPConnection]{KorAPConnection()}} object (obtained e.g. from \code{KorAPConnection()})}
 
 \item{textSigle}{unique text id (concatenation of corpus, document and text ids, separated by \code{/}, e.g. ) or vector thereof}
 
@@ -21,10 +21,12 @@ If there are metadata columns you cannot make sense of, please ignore them. The 
 \description{
 Retrieves metadata for a text, identified by its sigle (id) using the corresponding KorAP API
 (see \href{https://github.com/KorAP/Kustvakt/wiki/Service:-Metadata-Retrieval}{Kustvakt Wiki}).
+To retrieve the metadata for every text in a virtual corpus, use \code{\link[=corpusQuery]{corpusQuery()}}
+with \verb{<base/s=t>} as query, instead.
 }
 \examples{
 \dontrun{
-new("KorAPConnection") \%>\% textMetadata(c("WUD17/A97/08542", "WUD17/B96/57558", "WUD17/A97/08541"))
+KorAPConnection() |> textMetadata(c("WUD17/A97/08542", "WUD17/B96/57558", "WUD17/A97/08541"))
 }
 
 }

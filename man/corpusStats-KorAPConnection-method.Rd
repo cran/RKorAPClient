@@ -3,12 +3,12 @@
 \name{corpusStats,KorAPConnection-method}
 \alias{corpusStats,KorAPConnection-method}
 \alias{corpusStats}
-\title{Fetch information about a (virtual) corpus}
+\title{Get corpus size and statistics}
 \usage{
 \S4method{corpusStats}{KorAPConnection}(kco, vc = "", verbose = kco@verbose, as.df = FALSE)
 }
 \arguments{
-\item{kco}{\code{\link[=KorAPConnection]{KorAPConnection()}} object (obtained e.g. from \code{new("KorAPConnection")}}
+\item{kco}{\code{\link[=KorAPConnection]{KorAPConnection()}} object (obtained e.g. from \code{KorAPConnection()}}
 
 \item{vc}{string describing the virtual corpus. An empty string (default) means the whole corpus, as far as it is license-wise accessible.}
 
@@ -17,17 +17,56 @@
 \item{as.df}{return result as data frame instead of as S4 object?}
 }
 \value{
-\code{KorAPCorpusStats} object with the slots \code{documents}, \code{tokens}, \code{sentences}, \code{paragraphs}
+Object containing corpus statistics with the following information:
+\describe{
+\item{\code{vc}}{Virtual corpus definition used (empty string for entire corpus)}
+\item{\code{documents}}{Total number of documents in the (virtual) corpus}
+\item{\code{tokens}}{Total number of word tokens in the (virtual) corpus}
+\item{\code{sentences}}{Total number of sentences in the (virtual) corpus}
+\item{\code{paragraphs}}{Total number of paragraphs in the (virtual) corpus}
+\item{\code{webUIRequestUrl}}{URL to view this corpus subset in KorAP web interface}
+}
+When \code{as.df=TRUE}, returns a data frame with these columns.
+When \code{as.df=FALSE} (default), returns a KorAPCorpusStats object with these values as slots.
 }
 \description{
-Fetch information about a (virtual) corpus
+Retrieve information about corpus size (documents, tokens, sentences, paragraphs)
+for the entire corpus or a virtual corpus subset.
 }
-\examples{
+\section{Usage}{
 
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{# Get statistics for entire corpus
+kcon <- KorAPConnection()
+stats <- corpusStats(kcon)
+
+# Get statistics for a specific time period
+stats <- corpusStats(kcon, "pubDate in 2020")
+
+# Access the number of tokens
+stats@tokens
+}\if{html}{\out{</div>}}
+}
+
+\examples{
 \dontrun{
 
-kco <- new("KorAPConnection")
-corpusStats(kco, "pubDate in 2017 & textType=/Zeitung.*/")
+kco <- KorAPConnection()
+
+# Get statistics for entire corpus (returns S4 object)
+stats <- corpusStats(kco)
+stats@tokens  # Access number of tokens
+
+# Get statistics for newspaper texts from 2017 (as data frame)
+df <- corpusStats(kco, "pubDate in 2017 & textType=/Zeitung.*/", as.df = TRUE)
+df$documents  # Access number of documents
+
+# Compare corpus sizes across years
+years <- 2015:2020
+sizes <- sapply(years, function(y) {
+  corpusStats(kco, paste("pubDate in", y))@tokens
+})
 }
 
 }
+\concept{corpus analysis}

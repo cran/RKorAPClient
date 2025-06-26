@@ -1,7 +1,7 @@
 Package: RKorAPClient
 Type: Package
 Title: 'KorAP' Web Service Client Package
-Version: 1.0.0
+Version: 1.1.0
 Authors@R: 
     c(person(given = "Marc",
              family = "Kupietz",
@@ -13,14 +13,7 @@ Authors@R:
              email = "diewald@ids-mannheim.de"),
       person(given = "Leibniz Institute for the German Language",
              role = c("cph", "fnd")))
-Description: A client package that makes the 'KorAP' web service API accessible from R.
-  The corpus analysis platform 'KorAP' has been developed as a scientific tool to make
-  potentially large, stratified and multiply annotated corpora, such as the 'German Reference Corpus DeReKo'
-  or the 'Corpus of the Contemporary Romanian Language CoRoLa', accessible for linguists to let them verify
-  hypotheses and to find interesting patterns in real language use.
-  The 'RKorAPClient' package provides access to 'KorAP' and the corpora behind it for user-created R code,
-  as a programmatic alternative to the 'KorAP' web user-interface.
-  You can learn more about 'KorAP' and use it directly on 'DeReKo' at <https://korap.ids-mannheim.de/>.
+Description: A client package that makes the 'KorAP' web service API accessible from R. The corpus analysis platform 'KorAP' has been developed as a scientific tool to make potentially large, stratified and multiply annotated corpora, such as the 'German Reference Corpus DeReKo' or the 'Corpus of the Contemporary Romanian Language CoRoLa', accessible for linguists to let them verify hypotheses and to find interesting patterns in real language use. The 'RKorAPClient' package provides access to 'KorAP' and the corpora behind it for user-created R code, as a programmatic alternative to the 'KorAP' web user-interface. You can learn more about 'KorAP' and use it directly on 'DeReKo' at <https://korap.ids-mannheim.de/>.
 Depends: R (>= 4.1.0)
 Language: en-US
 License: BSD_2_clause + file LICENSE
@@ -35,16 +28,16 @@ Imports: R.cache, broom, ggplot2, tibble, magrittr, tidyr, dplyr,
         methods, PTXQC, purrr, stringr, urltools
 Suggests: lifecycle, testthat, htmlwidgets, rmarkdown, shiny, vcd,
         kableExtra, knitr, purrrlyr, raster, tidyverse
-Collate: 'KorAPConnection.R' 'KorAPCorpusStats.R'
+Collate: 'logging.R' 'KorAPConnection.R' 'KorAPCorpusStats.R'
         'RKorAPClient-package.R' 'KorAPQuery.R' 'association-scores.R'
         'ci.R' 'collocationAnalysis.R' 'collocationScoreQuery.R'
         'hc_add_onclick_korap_search.R' 'hc_freq_by_year_ci.R' 'misc.R'
         'reexports.R' 'textMetadata.R'
 NeedsCompilation: no
-Packaged: 2025-02-20 11:05:57 UTC; kupietz
+Packaged: 2025-06-26 15:12:25 UTC; kupietz
 Author: Marc Kupietz [aut, cre],
   Nils Diewald [ctb],
   Leibniz Institute for the German Language [cph, fnd]
 Maintainer: Marc Kupietz <kupietz@ids-mannheim.de>
 Repository: CRAN
-Date/Publication: 2025-02-20 11:20:02 UTC
+Date/Publication: 2025-06-26 16:10:02 UTC

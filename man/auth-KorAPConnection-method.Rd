@@ -25,18 +25,23 @@
 KorAPConnection object with access token set in \verb{@accessToken}.
 }
 \description{
-\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#experimental}{\figure{lifecycle-experimental.svg}{options: alt='[Experimental]'}}}{\strong{[Experimental]}}
-
 Authorize RKorAPClient to make KorAP queries and download results on behalf of the user.
 }
 \examples{
 \dontrun{
-kco <- new("KorAPConnection", verbose = TRUE) \%>\% auth()
+kco <- KorAPConnection(verbose = TRUE) \%>\% auth()
 df <- collocationAnalysis(kco, "focus([marmot/p=ADJA] {Ameisenplage})",
-  leftContextSize=1, rightContextSize=0)
+  leftContextSize = 1, rightContextSize = 0
+)
 }
 
 }
 \seealso{
 \code{\link[=persistAccessToken]{persistAccessToken()}}, \code{\link[=clearAccessToken]{clearAccessToken()}}
+
+Other initialization functions: 
+\code{\link{KorAPConnection-class}},
+\code{\link{clearAccessToken,KorAPConnection-method}},
+\code{\link{persistAccessToken,KorAPConnection-method}}
 }
+\concept{initialization functions}
