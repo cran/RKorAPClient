@@ -68,6 +68,13 @@ setGeneric("corpusQuery", function(kco, ...) standardGeneric("corpusQuery"))
 setGeneric("fetchAll", function(kqo, ...) standardGeneric("fetchAll"))
 setGeneric("fetchNext", function(kqo, ...) standardGeneric("fetchNext"))
 setGeneric("fetchRest", function(kqo, ...) standardGeneric("fetchRest"))
+setGeneric(
+  "fetchAnnotations",
+  function(kqo,
+           foundry = "tt",
+           overwrite = FALSE,
+           verbose = kqo@korapConnection@verbose) standardGeneric("fetchAnnotations")
+)
 setGeneric("frequencyQuery", function(kco, ...) standardGeneric("frequencyQuery"))
 
 maxResultsPerPage <- 50
@@ -335,11 +342,16 @@ setMethod(
         if (!is.null(res$meta$cached)) {
           log_info(verbose, " [cached]\n")
         } else if (!is.null(res$meta$benchmark)) {
-          # Round the benchmark time to 2 decimal places for better readability
-          # If it's a string ending with 's', extract the number, round it, and re-add 's'
+          # Round the benchmark time to 2 decimal places for better readability.
+          # Be robust to locales using comma as decimal separator (e.g., "0,12s").
           if (is.character(res$meta$benchmark) && grepl("s$", res$meta$benchmark)) {
-            time_value <- as.numeric(sub("s$", "", res$meta$benchmark))
-            formatted_time <- paste0(round(time_value, 2), "s")
+            bench_str <- sub("s$", "", res$meta$benchmark)
+            bench_num <- suppressWarnings(as.numeric(gsub(",", ".", bench_str)))
+            if (!is.na(bench_num)) {
+              formatted_time <- paste0(round(bench_num, 2), "s")
+            } else {
+              formatted_time <- res$meta$benchmark
+            }
             log_info(verbose, ", took ", formatted_time, "\n", sep = "")
           } else {
             # Fallback if the format is different than expected
@@ -531,6 +543,7 @@ setMethod("fetchNext", "KorAPQuery", function(kqo,
     currentMatches <- currentMatches %>%
       select(kqo@fields) %>%
       mutate(
+        matchID = res$matches$matchID,
         tmp_positions = gsub(".*-p(\\d+)-(\\d+).*", "\\1 \\2", res$matches$matchID),
         matchStart = as.integer(stringr::word(tmp_positions, 1)),
         matchEnd = as.integer(stringr::word(tmp_positions, 2)) - 1
@@ -736,6 +749,732 @@ setMethod("fetchRest", "KorAPQuery", function(kqo, verbose = kqo@korapConnection
   return(fetchNext(kqo, maxFetch = NA, verbose = verbose, ...))
 })
 
+#'
+#' Parse XML annotations into linguistic layers
+#'
+#' Internal helper function to extract linguistic annotations (lemma, POS, morphology)
+#' from XML annotation snippets returned by the KorAP API.
+#'
+#' @param xml_snippet XML string containing annotation data
+#' @return Named list with vectors for 'token', 'lemma', 'pos', and 'morph'
+#' @keywords internal
+parse_xml_annotations <- function(xml_snippet) {
+  if (is.null(xml_snippet) || is.na(xml_snippet) || xml_snippet == "") {
+    return(list(token = character(0), lemma = character(0), pos = character(0), morph = character(0)))
+  }
+
+  # Extract content within <span class="match">...</span> using a more robust approach
+  if (grepl('<span class="match">', xml_snippet)) {
+    # Find the start of match span
+    start_pos <- regexpr('<span class="match">', xml_snippet)
+    if (start_pos > 0) {
+      # Find the end by counting nested spans
+      content_start <- start_pos + attr(start_pos, "match.length")
+      remaining <- substr(xml_snippet, content_start, nchar(xml_snippet))
+
+      # Simple approach: extract everything until we hit context-right or end
+      if (grepl('<span class="context-right">', remaining)) {
+        content_to_parse <- gsub('(.*?)<span class="context-right">.*', '\\1', remaining)
+      } else {
+        # Find the closing </span> that matches our opening span
+        # For now, use a simpler approach - take everything until the last </span> sequence
+        content_to_parse <- gsub('(.*)</span>\\s*$', '\\1', remaining)
+      }
+    } else {
+      content_to_parse <- xml_snippet
+    }
+  } else {
+    content_to_parse <- xml_snippet
+  }
+
+  # Initialize result vectors
+  tokens <- character(0)
+  lemmas <- character(0)
+  pos_tags <- character(0)
+  morph_tags <- character(0)
+
+  # Split the content by </span> and process each meaningful part
+  parts <- unlist(strsplit(content_to_parse, '</span>'))
+
+  for (part in parts) {
+    part <- trimws(part)
+    if (nchar(part) == 0) next
+
+    # Look for parts that have title attributes and end with text
+    if (grepl('<span[^>]*title=', part)) {
+      # Extract the text content (everything after the last >)
+      text_content <- gsub('.*>([^<]*)$', '\\1', part)
+      text_content <- trimws(text_content)
+
+      if (nchar(text_content) > 0 && !grepl('^<', text_content)) {
+        tokens <- c(tokens, text_content)
+
+        # Extract all title attributes from this part
+        title_pattern <- 'title="([^"]*)"'
+        title_matches <- gregexpr(title_pattern, part)
+
+        lemma <- NA
+        pos_tag <- NA
+        morph_tag <- NA
+
+        if (title_matches[[1]][1] != -1) {
+          all_titles <- regmatches(part, title_matches)[[1]]
+          for (title_match in all_titles) {
+            title_content <- gsub(title_pattern, '\\1', title_match)
+
+            # Split by spaces and process each annotation
+            annotations <- unlist(strsplit(title_content, "\\s+"))
+            for (annotation in annotations) {
+              if (grepl('^[^/]+/l:', annotation)) {
+                lemma <- gsub('^[^/]+/l:(.*)$', '\\1', annotation)
+              } else if (grepl('^[^/]+/p:', annotation)) {
+                pos_tag <- gsub('^[^/]+/p:(.*)$', '\\1', annotation)
+              } else if (grepl('^[^/]+/m:', annotation)) {
+                morph_tag <- gsub('^[^/]+/m:(.*)$', '\\1', annotation)
+              }
+            }
+          }
+        }
+
+        lemmas <- c(lemmas, lemma)
+        pos_tags <- c(pos_tags, pos_tag)
+        morph_tags <- c(morph_tags, morph_tag)
+      }
+    }
+  }
+
+  # If no tokens found with the splitting approach, try a different method
+  if (length(tokens) == 0) {
+    # Look for the innermost spans that contain actual text
+    innermost_pattern <- '<span[^>]*title="([^"]*)"[^>]*>([^<]+)</span>'
+    innermost_matches <- gregexpr(innermost_pattern, content_to_parse, perl = TRUE)
+
+    if (innermost_matches[[1]][1] != -1) {
+      matches <- regmatches(content_to_parse, innermost_matches)[[1]]
+
+      for (match in matches) {
+        title <- gsub(innermost_pattern, '\\1', match, perl = TRUE)
+        text <- gsub(innermost_pattern, '\\2', match, perl = TRUE)
+        text <- trimws(text)
+
+        if (nchar(text) > 0) {
+          tokens <- c(tokens, text)
+
+          # Parse space-separated annotations in title
+          lemma <- NA
+          pos_tag <- NA
+          morph_tag <- NA
+
+          annotations <- unlist(strsplit(title, "\\s+"))
+          for (annotation in annotations) {
+            if (grepl('^[^/]+/l:', annotation)) {
+              lemma <- gsub('^[^/]+/l:(.*)$', '\\1', annotation)
+            } else if (grepl('^[^/]+/p:', annotation)) {
+              pos_tag <- gsub('^[^/]+/p:(.*)$', '\\1', annotation)
+            } else if (grepl('^[^/]+/m:', annotation)) {
+              morph_tag <- gsub('^[^/]+/m:(.*)$', '\\1', annotation)
+            }
+          }
+
+          lemmas <- c(lemmas, lemma)
+          pos_tags <- c(pos_tags, pos_tag)
+          morph_tags <- c(morph_tags, morph_tag)
+        }
+      }
+    }
+  }
+
+  # Ensure all vectors have the same length
+  max_length <- max(length(tokens), length(lemmas), length(pos_tags), length(morph_tags))
+  if (max_length > 0) {
+    tokens <- c(tokens, rep(NA, max_length - length(tokens)))
+    lemmas <- c(lemmas, rep(NA, max_length - length(lemmas)))
+    pos_tags <- c(pos_tags, rep(NA, max_length - length(pos_tags)))
+    morph_tags <- c(morph_tags, rep(NA, max_length - length(morph_tags)))
+  }
+
+  return(list(
+    token = tokens,
+    lemma = lemmas,
+    pos = pos_tags,
+    morph = morph_tags
+  ))
+}
+
+#'
+#' Parse XML annotations into linguistic layers with left/match/right structure
+#'
+#' Internal helper function to extract linguistic annotations (lemma, POS, morphology)
+#' from XML annotation snippets returned by the KorAP API, split into left context,
+#' match, and right context sections like the tokens field.
+#'
+#' @param xml_snippet XML string containing annotation data
+#' @return Named list with nested structure containing left/match/right for 'atokens', 'lemma', 'pos', and 'morph'
+#' @keywords internal
+parse_xml_annotations_structured <- function(xml_snippet) {
+  if (is.null(xml_snippet) || is.na(xml_snippet) || xml_snippet == "") {
+    empty_result <- list(left = character(0), match = character(0), right = character(0))
+    return(list(
+      atokens = empty_result,
+      lemma = empty_result,
+      pos = empty_result,
+      morph = empty_result
+    ))
+  }
+
+  # Helper function to extract annotations from a span section
+  extract_annotations_from_section <- function(section_content) {
+    # Remove any <mark>...</mark> tags that may interrupt token boundaries
+    section_no_marks <- gsub('</?mark[^>]*>', '', section_content, perl = TRUE)
+    # Normalize separators between adjacent top-level spans so splitting is robust.
+    # Replace any punctuation/entity/space run between one-or-more closing spans and the next opening span
+    # with a single space, preserving all closing spans.
+    section_norm <- gsub('((?:</span>)+)[[:space:]]*(?:&[^;]+;|[[:punct:]]|[[:space:]])*[[:space:]]*(<span)', '\\1 \\2', section_no_marks, perl = TRUE)
+    # Handle both spaced tokens and nested single tokens by scanning innermost spans with direct text
+    tokens <- character(0)
+    lemmas <- character(0)
+    pos_tags <- character(0)
+    morph_tags <- character(0)
+
+    pat_token <- '<span[^>]*title="([^"]*)"[^>]*>([^<]+)</span>'
+    mm <- gregexpr(pat_token, section_norm, perl = TRUE)
+    if (mm[[1]][1] != -1) {
+      starts <- mm[[1]]
+      lens <- attr(mm[[1]], 'match.length')
+      for (k in seq_along(starts)) {
+        s <- starts[k]
+        e <- s + lens[k] - 1
+        fragment <- substr(section_norm, s, e)
+        text_content <- sub(pat_token, '\\2', fragment, perl = TRUE)
+        text_content <- trimws(text_content)
+        title_content <- sub(pat_token, '\\1', fragment, perl = TRUE)
+
+        if (nchar(text_content) == 0) next
+
+        lemma <- NA
+        pos_tag <- NA
+        morph_features <- character(0)
+
+        # parse inner title
+        ann <- unlist(strsplit(title_content, "[[:space:]]+"))
+        for (a in ann) {
+          if (grepl('/l:', a)) {
+            lemma <- sub('.*?/l:(.*)$', '\\1', a, perl = TRUE)
+          } else if (grepl('/p:', a)) {
+            pos_tag <- sub('.*?/p:(.*)$', '\\1', a, perl = TRUE)
+          } else if (grepl('/m:', a)) {
+            morph_features <- c(morph_features, sub('.*?/m:(.*)$', '\\1', a, perl = TRUE))
+          }
+        }
+
+        # If lemma missing, look back in nearby context for the nearest title containing l:
+        if (is.na(lemma) || nchar(lemma) == 0) {
+          ctx_start <- max(1, s - 500)
+          context <- substr(section_norm, ctx_start, s - 1)
+          tmm <- gregexpr('title="([^"]*)"', context, perl = TRUE)
+          if (tmm[[1]][1] != -1) {
+            ctx_titles <- regmatches(context, tmm)[[1]]
+            for (ti in rev(ctx_titles)) {
+              cont <- sub('title="([^"]*)"', '\\1', ti, perl = TRUE)
+              if (grepl('/l:', cont)) {
+                lemma <- sub('.*?/l:([^ ]+).*', '\\1', cont, perl = TRUE)
+                break
+              }
+            }
+          }
+        }
+
+        # If POS missing, keep NA; morphological features may also appear in outer titles
+        if (length(morph_features) == 0) {
+          ctx_start <- max(1, s - 500)
+          context <- substr(section_norm, ctx_start, s - 1)
+          tmm <- gregexpr('title="([^"]*)"', context, perl = TRUE)
+          if (tmm[[1]][1] != -1) {
+            ctx_titles <- regmatches(context, tmm)[[1]]
+            for (ti in rev(ctx_titles)) {
+              cont <- sub('title="([^"]*)"', '\\1', ti, perl = TRUE)
+              if (grepl('/m:', cont)) {
+                mparts <- unlist(strsplit(cont, "[[:space:]]+"))
+                for (mp in mparts) if (grepl('/m:', mp)) morph_features <- c(morph_features, sub('.*?/m:(.*)$', '\\1', mp, perl = TRUE))
+                break
+              }
+            }
+          }
+        }
+
+        tokens <- c(tokens, text_content)
+        lemmas <- c(lemmas, if (!is.null(lemma)) lemma else NA)
+        pos_tags <- c(pos_tags, if (!is.null(pos_tag)) pos_tag else NA)
+        morph_tags <- c(morph_tags, if (length(morph_features) > 0) paste(morph_features, collapse = "|") else NA)
+      }
+    }
+
+    # Ensure all vectors have the same length
+    max_length <- max(length(tokens), length(lemmas), length(pos_tags), length(morph_tags))
+    if (max_length > 0) {
+      tokens <- c(tokens, rep(NA, max_length - length(tokens)))
+      lemmas <- c(lemmas, rep(NA, max_length - length(lemmas)))
+      pos_tags <- c(pos_tags, rep(NA, max_length - length(pos_tags)))
+      morph_tags <- c(morph_tags, rep(NA, max_length - length(morph_tags)))
+    }
+
+    return(list(
+      tokens = tokens,
+      lemmas = lemmas,
+      pos_tags = pos_tags,
+      morph_tags = morph_tags
+    ))
+  }
+
+  # Split the XML into three parts: left context, match content, and right context
+  # The structure is: <span class="match">...left...<mark>...match...</mark>...right...</span>
+
+  # First extract the content within the match span using DOTALL modifier
+  match_span_pattern <- '(?s)<span class="match">(.*?)</span>\\s*<span class="context-right">'
+  match_span_match <- regexpr(match_span_pattern, xml_snippet, perl = TRUE)
+
+  if (match_span_match == -1) {
+    # Try alternative pattern if no context-right
+    match_span_pattern <- '(?s)<span class="match">(.*?)</span>\\s*$'
+    match_span_match <- regexpr(match_span_pattern, xml_snippet, perl = TRUE)
+  }
+
+  if (match_span_match > 0) {
+    match_span_content <- gsub(match_span_pattern, '\\1', xml_snippet, perl = TRUE)
+
+    # Now find the <mark> and </mark> positions within this content
+    mark_start <- regexpr('<mark[^>]*>', match_span_content, perl = TRUE)
+    # Use the LAST closing </mark> to cover multi-part matches
+    mark_end_gre <- gregexpr('</mark>', match_span_content, perl = TRUE)
+    mark_end_positions <- mark_end_gre[[1]]
+    mark_end <- if (!is.null(mark_end_positions) && length(mark_end_positions) > 0 && mark_end_positions[1] != -1)
+      mark_end_positions[length(mark_end_positions)] else -1
+    mark_end_len <- if (mark_end != -1) attr(mark_end_gre[[1]], "match.length")[length(mark_end_positions)] else 0
+
+    if (mark_start > 0 && mark_end > 0) {
+      # Left context: everything before first <mark>
+      left_content <- substr(match_span_content, 1, mark_start - 1)
+
+      # Match content: everything between first <mark> and last </mark>
+      match_content <- substr(match_span_content, mark_start, mark_end + mark_end_len - 1)
+
+      # Right context: everything after last </mark>
+      right_content_start <- mark_end + mark_end_len
+      right_content <- substr(match_span_content, right_content_start, nchar(match_span_content))
+    } else {
+      # No mark tags found, treat entire match span as match content
+      left_content <- ""
+      match_content <- match_span_content
+      right_content <- ""
+    }
+  } else {
+    # No match span found, treat entire content as match
+    left_content <- ""
+    match_content <- xml_snippet
+    right_content <- ""
+  }
+
+  # Process each section
+  left_annotations <- extract_annotations_from_section(left_content)
+  match_annotations <- extract_annotations_from_section(match_content)
+  right_annotations <- extract_annotations_from_section(right_content)
+
+  return(list(
+    atokens = list(
+      left = left_annotations$tokens,
+      match = match_annotations$tokens,
+      right = right_annotations$tokens
+    ),
+    lemma = list(
+      left = left_annotations$lemmas,
+      match = match_annotations$lemmas,
+      right = right_annotations$lemmas
+    ),
+    pos = list(
+      left = left_annotations$pos_tags,
+      match = match_annotations$pos_tags,
+      right = right_annotations$pos_tags
+    ),
+    morph = list(
+      left = left_annotations$morph_tags,
+      match = match_annotations$morph_tags,
+      right = right_annotations$morph_tags
+    )
+  ))
+}
+
+#' Fetch annotations for all collected matches
+#'
+#' `r lifecycle::badge("experimental")`
+#'
+#' **`fetchAnnotations`** fetches annotations (only token annotations, for now)
+#' for all matches in the `@collectedMatches` slot
+#' of a KorAPQuery object and adds annotation columns directly to the `@collectedMatches`
+#' data frame. The method uses the `matchID` from collected matches.
+#'
+#' **Important**: For copyright-restricted corpora, users must be authorized via [auth()]
+#' and the initial corpus query must have `metadataOnly = FALSE` to ensure snippets are
+#' available for annotation parsing.
+#'
+#' The method parses XML snippet annotations and adds linguistic columns to the data frame:
+#' - `pos`: data frame with `left`, `match`, `right` columns, each containing list vectors of part-of-speech tags
+#' - `lemma`: data frame with `left`, `match`, `right` columns, each containing list vectors of lemmas
+#' - `morph`: data frame with `left`, `match`, `right` columns, each containing list vectors of morphological tags
+#' - `atokens`: data frame with `left`, `match`, `right` columns, each containing list vectors of token text (from annotations)
+#' - `annotation_snippet`: original XML snippet from the annotation API
+#'
+#' @family corpus search functions
+#' @concept Annotations
+#'
+#' @param kqo object obtained from [corpusQuery()] with collected matches. Note: the original corpus query should have `metadataOnly = FALSE` for annotation parsing to work.
+#' @param foundry string specifying the foundry to use for annotations (default: "tt" for Tree-Tagger)
+#' @param overwrite logical; if TRUE, re-fetch and replace any existing
+#'   annotation columns. If FALSE (default), only add missing annotation layers
+#'   and preserve already fetched ones (e.g., keep POS/lemma from a previous
+#'   foundry while adding morph from another).
+#' @param verbose print progress information if true
+#' @return The updated `kqo` object with annotation columns
+#' like `pos`, `lemma`, `morph` (and `atokens` and `annotation_snippet`)
+#' in the `@collectedMatches` slot. Each column is a data frame
+#' with `left`, `match`, and `right` columns containing list vectors of annotations
+#' for the left context, matched tokens, and right context, respectively.
+#' The original XML snippet for each match is also stored in `annotation_snippet`.
+#'
+#' @examples
+#' \dontrun{
+#'
+#' # Fetch annotations for matches using Tree-Tagger foundry
+#' # Note: Authorization required for copyright-restricted corpora
+#' q <- KorAPConnection() |>
+#'   auth() |>
+#'   corpusQuery("Ameisenplage", metadataOnly = FALSE) |>
+#'   fetchNext(maxFetch = 10) |>
+#'   fetchAnnotations()
+#'
+#' # Access linguistic annotations for match i:
+#' pos_tags <- q@collectedMatches$pos
+#' # Data frame with left/match/right columns for POS tags
+#' lemmas <- q@collectedMatches$lemma
+#' # Data frame with left/match/right columns for lemmas
+#' morphology <- q@collectedMatches$morph
+#' # Data frame with left/match/right columns for morphological tags
+#' atokens <- q@collectedMatches$atokens
+#' # Data frame with left/match/right columns for annotation token text
+#' # Original XML snippet for match i
+#' raw_snippet <- q@collectedMatches$annotation_snippet[[i]]
+#'
+#' # Access specific components:
+#' # POS tags for the matched tokens in match i
+#' match_pos <- q@collectedMatches$pos$match[[i]]
+#' # Lemmas for the left context in match i
+#' left_lemmas <- q@collectedMatches$lemma$left[[i]]
+#'  # Token text for the right context in match i
+#' right_tokens <- q@collectedMatches$atokens$right[[i]]
+#'
+#' # Use a different foundry (e.g., MarMoT)
+#' q <- KorAPConnection() |>
+#'   auth() |>
+#'   corpusQuery("Ameisenplage", metadataOnly = FALSE) |>
+#'   fetchNext(maxFetch = 10) |>
+#'   fetchAnnotations(foundry = "marmot")
+#' q@collectedMatches$pos$left[1] # POS tags for the left context of the first match
+#' }
+#' @export
+setMethod("fetchAnnotations", "KorAPQuery", function(kqo,
+																											 foundry = "tt",
+																											 overwrite = FALSE,
+																											 verbose = kqo@korapConnection@verbose) {
+	if (is.null(kqo@collectedMatches) ||
+			nrow(kqo@collectedMatches) == 0) {
+		warning("No collected matches found. Please run fetchNext() or fetchAll() first.")
+		return(kqo)
+	}
+
+  df <- kqo@collectedMatches
+  kco <- kqo@korapConnection
+
+  # Initialize annotation columns as data frames (like tokens field)
+  # Create the structure more explicitly to avoid assignment issues
+  nrows <- nrow(df)
+
+  # Pre-compute the empty character vector list to avoid repeated computation
+  empty_char_list <- I(replicate(nrows, character(0), simplify = FALSE))
+
+  # Helper function to create annotation data frame structure
+  create_annotation_df <- function(empty_list) {
+    data.frame(
+      left = empty_list,
+      match = empty_list,
+      right = empty_list,
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # Track which annotation columns already existed to decide overwrite behavior
+  existing_types <- list(
+    pos = "pos" %in% colnames(df),
+    lemma = "lemma" %in% colnames(df),
+    morph = "morph" %in% colnames(df),
+    atokens = "atokens" %in% colnames(df),
+    annotation_snippet = "annotation_snippet" %in% colnames(df)
+  )
+
+  # Initialize annotation columns using the helper function
+  annotation_types <- c("pos", "lemma", "morph", "atokens")
+  for (type in annotation_types) {
+    if (overwrite || !existing_types[[type]]) {
+      df[[type]] <- create_annotation_df(empty_char_list)
+    }
+  }
+
+  if (overwrite || !existing_types$annotation_snippet) {
+    df$annotation_snippet <- replicate(nrows, NA, simplify = FALSE)
+  }
+
+  # Initialize timing for ETA calculation
+  start_time <- Sys.time()
+  if (verbose) {
+    log_info(verbose, paste("Starting to fetch annotations for", nrows, "matches\n"))
+  }
+
+  # Helper to decide if existing annotation row is effectively empty
+  is_empty_annotation_row <- function(ann_df, row_index) {
+    if (is.null(ann_df) || nrow(ann_df) < row_index) return(TRUE)
+    left_val <- ann_df$left[[row_index]]
+    match_val <- ann_df$match[[row_index]]
+    right_val <- ann_df$right[[row_index]]
+    all(
+      (is.null(left_val) || (length(left_val) == 0) || all(is.na(left_val))),
+      (is.null(match_val) || (length(match_val) == 0) || all(is.na(match_val))),
+      (is.null(right_val) || (length(right_val) == 0) || all(is.na(right_val)))
+    )
+  }
+
+  for (i in seq_len(nrow(df))) {
+    # ETA logging
+    if (verbose && i > 1) {
+      eta_info <- calculate_eta(i, nrows, start_time)
+      log_info(verbose, paste("Fetching annotations for match", i, "of", nrows, eta_info, "\n"))
+    }
+    # Use matchID if available, otherwise fall back to constructing from matchStart/matchEnd
+    if ("matchID" %in% colnames(df) && !is.na(df$matchID[i])) {
+      # matchID format: "match-match-A00/JUN/39609-p202-203" or encrypted format like
+      # "match-DNB10/CSL/80400-p2343-2344x_MinDOhu_P6dd2MMZJyyus_7MairdKnr1LxY07Cya-Ow"
+      # Extract document path and position, handling both regular and encrypted formats
+
+      # More flexible regex to extract the document path with position and encryption
+      # Look for pattern: match-(...)-p(\d+)-(\d+)(.*) where (.*) is the encrypted part
+      # We need to capture the entire path including the encrypted suffix
+      match_result <- regexpr("match-(.+?-p\\d+-\\d+.*)", df$matchID[i], perl = TRUE)
+
+      if (match_result > 0) {
+        # Extract the complete path including encryption (everything after "match-")
+        doc_path_with_pos_and_encryption <- gsub("^match-(.+)$", "\\1", df$matchID[i], perl = TRUE)
+        # Convert the dash before position to slash, but keep everything after the position
+        match_path <- gsub("-p(\\d+-\\d+.*)", "/p\\1", doc_path_with_pos_and_encryption)
+        # Use httr2 to construct URL safely
+        base_url <- paste0(kco@apiUrl, "corpus/", match_path)
+        req <- httr2::url_modify(base_url, query = list(foundry = foundry))
+      } else {
+        # If regex fails, fall back to the old method with httr2
+        # Format numbers to avoid scientific notation
+        match_start <- format(df$matchStart[i], scientific = FALSE)
+        match_end <- format(df$matchEnd[i], scientific = FALSE)
+        base_url <- paste0(kco@apiUrl, "corpus/", df$textSigle[i], "/", "p", match_start, "-", match_end)
+        req <- httr2::url_modify(base_url, query = list(foundry = foundry))
+      }
+    } else {
+      # Fallback to the old method with httr2
+      # Format numbers to avoid scientific notation
+      match_start <- format(df$matchStart[i], scientific = FALSE)
+      match_end <- format(df$matchEnd[i], scientific = FALSE)
+      base_url <- paste0(kco@apiUrl, "corpus/", df$textSigle[i], "/", "p", match_start, "-", match_end)
+      req <- httr2::url_modify(base_url, query = list(foundry = foundry))
+    }
+
+    tryCatch({
+      res <- apiCall(kco, req)
+
+      if (!is.null(res)) {
+        # Store the raw annotation snippet (respect overwrite flag)
+        if (overwrite || !existing_types$annotation_snippet || is.null(df$annotation_snippet[[i]]) || is.na(df$annotation_snippet[[i]])) {
+          df$annotation_snippet[[i]] <- if (is.list(res) && "snippet" %in% names(res)) res$snippet else NA
+        }
+
+        # Parse XML annotations if snippet is available
+        if (is.list(res) && "snippet" %in% names(res)) {
+          parsed_annotations <- parse_xml_annotations_structured(res$snippet)
+
+          # Store the parsed linguistic data in data frame format (like tokens)
+          # Use individual assignment to avoid data frame mismatch errors
+          tryCatch({
+            # Assign POS annotations
+            if (overwrite || !existing_types$pos || is_empty_annotation_row(df$pos, i)) {
+              df$pos$left[i] <- list(parsed_annotations$pos$left)
+              df$pos$match[i] <- list(parsed_annotations$pos$match)
+              df$pos$right[i] <- list(parsed_annotations$pos$right)
+            }
+
+            # Assign lemma annotations
+            if (overwrite || !existing_types$lemma || is_empty_annotation_row(df$lemma, i)) {
+              df$lemma$left[i] <- list(parsed_annotations$lemma$left)
+              df$lemma$match[i] <- list(parsed_annotations$lemma$match)
+              df$lemma$right[i] <- list(parsed_annotations$lemma$right)
+            }
+
+            # Assign morphology annotations
+            if (overwrite || !existing_types$morph || is_empty_annotation_row(df$morph, i)) {
+              df$morph$left[i] <- list(parsed_annotations$morph$left)
+              df$morph$match[i] <- list(parsed_annotations$morph$match)
+              df$morph$right[i] <- list(parsed_annotations$morph$right)
+            }
+
+            # Assign token annotations
+            if (overwrite || !existing_types$atokens || is_empty_annotation_row(df$atokens, i)) {
+              df$atokens$left[i] <- list(parsed_annotations$atokens$left)
+              df$atokens$match[i] <- list(parsed_annotations$atokens$match)
+              df$atokens$right[i] <- list(parsed_annotations$atokens$right)
+            }
+          }, error = function(assign_error) {
+            # Set empty character vectors on assignment error using list assignment
+            if (overwrite || !existing_types$pos) {
+              df$pos$left[i] <<- list(character(0))
+              df$pos$match[i] <<- list(character(0))
+              df$pos$right[i] <<- list(character(0))
+            }
+
+            if (overwrite || !existing_types$lemma) {
+              df$lemma$left[i] <<- list(character(0))
+              df$lemma$match[i] <<- list(character(0))
+              df$lemma$right[i] <<- list(character(0))
+            }
+
+            if (overwrite || !existing_types$morph) {
+              df$morph$left[i] <<- list(character(0))
+              df$morph$match[i] <<- list(character(0))
+              df$morph$right[i] <<- list(character(0))
+            }
+
+            if (overwrite || !existing_types$atokens) {
+              df$atokens$left[i] <<- list(character(0))
+              df$atokens$match[i] <<- list(character(0))
+              df$atokens$right[i] <<- list(character(0))
+            }
+          })
+        } else {
+          # No snippet available, store empty vectors
+          if (overwrite || !existing_types$pos) {
+            df$pos$left[i] <- list(character(0))
+            df$pos$match[i] <- list(character(0))
+            df$pos$right[i] <- list(character(0))
+          }
+
+          if (overwrite || !existing_types$lemma) {
+            df$lemma$left[i] <- list(character(0))
+            df$lemma$match[i] <- list(character(0))
+            df$lemma$right[i] <- list(character(0))
+          }
+
+          if (overwrite || !existing_types$morph) {
+            df$morph$left[i] <- list(character(0))
+            df$morph$match[i] <- list(character(0))
+            df$morph$right[i] <- list(character(0))
+          }
+
+          if (overwrite || !existing_types$atokens) {
+            df$atokens$left[i] <- list(character(0))
+            df$atokens$match[i] <- list(character(0))
+            df$atokens$right[i] <- list(character(0))
+          }
+        }
+      } else {
+        # Store NAs for failed requests
+        if (overwrite || !existing_types$pos) {
+          df$pos$left[i] <- list(NA)
+          df$pos$match[i] <- list(NA)
+          df$pos$right[i] <- list(NA)
+        }
+
+        if (overwrite || !existing_types$lemma) {
+          df$lemma$left[i] <- list(NA)
+          df$lemma$match[i] <- list(NA)
+          df$lemma$right[i] <- list(NA)
+        }
+
+        if (overwrite || !existing_types$morph) {
+          df$morph$left[i] <- list(NA)
+          df$morph$match[i] <- list(NA)
+          df$morph$right[i] <- list(NA)
+        }
+
+        if (overwrite || !existing_types$atokens) {
+          df$atokens$left[i] <- list(NA)
+          df$atokens$match[i] <- list(NA)
+          df$atokens$right[i] <- list(NA)
+        }
+        if (overwrite || !existing_types$annotation_snippet) {
+          df$annotation_snippet[[i]] <- NA
+        }
+      }
+    }, error = function(e) {
+      # Store NAs for failed requests
+      if (overwrite || !existing_types$pos) {
+        df$pos$left[i] <- list(NA)
+        df$pos$match[i] <- list(NA)
+        df$pos$right[i] <- list(NA)
+      }
+
+      if (overwrite || !existing_types$lemma) {
+        df$lemma$left[i] <- list(NA)
+        df$lemma$match[i] <- list(NA)
+        df$lemma$right[i] <- list(NA)
+      }
+
+      if (overwrite || !existing_types$morph) {
+        df$morph$left[i] <- list(NA)
+        df$morph$match[i] <- list(NA)
+        df$morph$right[i] <- list(NA)
+      }
+
+      if (overwrite || !existing_types$atokens) {
+        df$atokens$left[i] <- list(NA)
+        df$atokens$match[i] <- list(NA)
+        df$atokens$right[i] <- list(NA)
+      }
+      if (overwrite || !existing_types$annotation_snippet) {
+        df$annotation_snippet[[i]] <- NA
+      }
+    })
+  }
+
+  # Validate data frame structure before assignment
+  if (nrow(df) != nrow(kqo@collectedMatches)) {
+  }
+
+  # Update the collectedMatches with annotation data
+  tryCatch({
+    kqo@collectedMatches <- df
+  }, error = function(assign_error) {
+    # Try a safer approach: add columns individually
+    tryCatch({
+      kqo@collectedMatches$pos <- df$pos
+      kqo@collectedMatches$lemma <- df$lemma
+      kqo@collectedMatches$morph <- df$morph
+      kqo@collectedMatches$atokens <- df$atokens
+      kqo@collectedMatches$annotation_snippet <- df$annotation_snippet
+    }, error = function(col_error) {
+      warning("Failed to add annotation data to collectedMatches")
+    })
+  })
+
+  if (verbose) {
+    elapsed_time <- Sys.time() - start_time
+    log_info(verbose, paste("Finished fetching annotations for", nrows, "matches in", format_duration(as.numeric(elapsed_time, units = "secs")), "\n"))
+  }
+
+  return(kqo)
+})
+
 #' Query frequencies of search expressions in virtual corpora
 #'
 #' **`frequencyQuery`** combines [corpusQuery()], [corpusStats()] and
@@ -851,6 +1590,15 @@ format.KorAPQuery <- function(x, ...) {
   }
   cat("   Total results: ", q@totalResults, "\n")
   cat(" Fetched results: ", q@nextStartIndex, "\n")
+  if (!is.null(q@collectedMatches) && "pos" %in% colnames(q@collectedMatches)) {
+    successful_annotations <- sum(!is.na(q@collectedMatches$annotation_snippet))
+    parsed_annotations <- sum(!is.na(q@collectedMatches$pos))
+    cat("     Annotations: ", successful_annotations, " of ", nrow(q@collectedMatches), " matches")
+    if (parsed_annotations > 0) {
+      cat(" (", parsed_annotations, " with parsed linguistic data)")
+    }
+    cat("\n")
+  }
 }
 
 #' show()
@@ -860,4 +1608,5 @@ format.KorAPQuery <- function(x, ...) {
 #' @export
 setMethod("show", "KorAPQuery", function(object) {
   format(object)
+  invisible(object)
 })
