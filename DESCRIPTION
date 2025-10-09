@@ -1,7 +1,7 @@
 Package: RKorAPClient
 Type: Package
 Title: 'KorAP' Web Service Client Package
-Version: 1.2.0
+Version: 1.2.1
 Authors@R: 
     c(person(given = "Marc",
              family = "Kupietz",
@@ -25,7 +25,7 @@ Encoding: UTF-8
 RoxygenNote: 7.3.3
 Imports: R.cache, broom, ggplot2, tibble, magrittr, tidyr, dplyr,
         lubridate, highcharter, jsonlite, keyring, utils, httr2, curl,
-        methods, PTXQC, purrr, stringr, urltools
+        methods, PTXQC, purrr, stringr, urltools, xml2
 Suggests: lifecycle, testthat, tidyllm, htmlwidgets, rmarkdown, shiny,
         vcd, kableExtra, knitr, purrrlyr, raster, tidyverse, sf,
         geojsonsf, viridisLite
@@ -35,10 +35,10 @@ Collate: 'logging.R' 'KorAPConnection.R' 'KorAPCorpusStats.R'
         'hc_add_onclick_korap_search.R' 'hc_freq_by_year_ci.R' 'misc.R'
         'reexports.R' 'textMetadata.R'
 NeedsCompilation: no
-Packaged: 2025-09-10 15:27:22 UTC; kupietz
+Packaged: 2025-10-09 15:10:39 UTC; kupietz
 Author: Marc Kupietz [aut, cre],
   Nils Diewald [ctb],
   Leibniz Institute for the German Language [cph, fnd]
 Maintainer: Marc Kupietz <kupietz@ids-mannheim.de>
 Repository: CRAN
-Date/Publication: 2025-09-10 16:00:20 UTC
+Date/Publication: 2025-10-09 16:00:02 UTC

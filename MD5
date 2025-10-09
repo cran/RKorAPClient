@@ -1,10 +1,10 @@
-bfc33335f30b973f43fea7fc0ba480fd *DESCRIPTION
+440b8ae8195ef2ef2d5c955873e5779b *DESCRIPTION
 93f0d541d56e13d56a64e16e143383db *LICENSE
 e45b17cdec36c223136dfe684399185f *NAMESPACE
-f98ac59c32e254bb96c9859176dda597 *NEWS.md
+84cd1110d4dd18e52839651474e0cc42 *NEWS.md
 e9550f5322a254c88a69bcf87b9967ff *R/KorAPConnection.R
 2db0ce2773bde83a22a0f0f1fc512b5f *R/KorAPCorpusStats.R
-0a66442a3031b446a4484572813c3f5f *R/KorAPQuery.R
+b076b81fc6ae1ac55e5d66190f1766c4 *R/KorAPQuery.R
 fc2960fdd1bbfe34d74b00d9a7cb9ef9 *R/RKorAPClient-package.R
 86ba5a282a45e1592e28f6aeb9067618 *R/association-scores.R
 6bb79b24fc66b49d0462198f3a210bea *R/ci.R
@@ -101,10 +101,10 @@ c840a06393c81356afc040effd10a451 *tests/testthat/test-corpusQuery.R
 57d21a493a118db4ecf277e4ec2fcca9 *tests/testthat/test-corpusquery-eta.R
 d541a7de90eb91ef992d9bbc2a88a3e5 *tests/testthat/test-demos.R
 2809c167b9bbc74ea6e454554590c220 *tests/testthat/test-fetch.R
-e17d4f6680d2331915040c6b757900a6 *tests/testthat/test-fetchAnnotations.R
+4596845be3056807d8f9019f5a46e8de *tests/testthat/test-fetchAnnotations.R
 61e2753ed6540b41b0a6c9c8e7e72624 *tests/testthat/test-misc.R
 e9ec1663b70ab8ceb17170a1111f8243 *tests/testthat/test-page-numbering.R
-cdb22d525b104f88bd9ab376462083ef *tests/testthat/test-parse-annotations.R
+55af615e422c0602f44d5d5456885cd2 *tests/testthat/test-parse-annotations.R
 a957bb682d4708171114c566073cee6a *tests/testthat/test-readme-against-llm.R
 802d82e16837015e68a71392b9a80858 *tests/testthat/test-textMetadata.R
 f62e45a5201c96007847c3e54f79cfce *tests/testthat/test-verbose-env.R
