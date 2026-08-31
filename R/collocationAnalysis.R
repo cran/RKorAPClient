@@ -38,17 +38,77 @@ setGeneric("collocationAnalysis", function(kco, ...) standardGeneric("collocatio
 #' @param expand                 if TRUE, `node` and `vc` parameters are expanded to all of their combinations
 #' @param maxRecurse             apply collocation analysis recursively `maxRecurse` times
 #' @param addExamples            If TRUE, examples for instances of collocations will be added in a column `example`. This makes a difference in particular if `node` is given as a lemma query.
-#' @param thresholdScore         association score function (see \code{\link{association-score-functions}}) to use for computing the threshold that is applied for recursive collocation analysis calls
-#' @param threshold              minimum value of `thresholdScore` function call to apply collocation analysis recursively
+#' @param thresholdScore         association score function (see \code{\link{association-score-functions}}) to use for computing the threshold that is applied for recursive collocation analysis calls (only applied when \code{maxRecurse > 0})
+#' @param threshold              minimum value of `thresholdScore` function call to apply collocation analysis recursively (only applied when \code{maxRecurse > 0})
 #' @param localStopwords         vector of stopwords that will not be considered as collocates in the current function call, but that will not be passed to recursive calls
 #' @param collocateFilterRegex   allow only collocates matching the regular expression
+#' @param queryMissingScores     if TRUE, attempt to retrieve corpus-based association scores for vc/collocate combinations that would otherwise be imputed, by re-querying the KorAP backend without applying the collocate frequency threshold
+#' @param missingScoreQuantile   lower quantile (evaluated per association measure over the pooled result set) that anchors the adaptive floor used for imputing missing scores between virtual corpora; a robust spread is subtracted from this anchor so the imputed values stay at or below the weakest observed scores. Imputed cells are marked in the `imputed*` columns; see the section on interpreting multi-VC comparisons below
+#' @param vcLabel optional label override for the current virtual corpus (used internally when named VC collections are expanded)
+#' @param cacheAs                path to an RDS file for caching the result. If the file already exists, the cached result is loaded and returned immediately without contacting the server. Otherwise the analysis is run normally and the result is saved to the file before returning. Defaults to \code{NULL} (no caching).
 #' @param ...                    more arguments will be passed to [collocationScoreQuery()]
 #' @inheritParams collocationScoreQuery,KorAPConnection-method
-#' @return Tibble with top collocates, association scores, corresponding URLs for web user interface queries, etc.
+#' @return
+#' A tibble where each row represents a candidate collocate for the requested node.
+#' Columns include (depending on the selected association measures):
 #'
-#' @importFrom dplyr arrange desc slice_head bind_rows
+#' \itemize{
+#'   \item \code{node}, \code{collocate}, \code{vc}, \code{label}: identifiers for the query node, collocate, virtual corpus, and optional label.
+#'   \item Frequency and contingency information such as \code{frequency}, \code{O}, \code{O1}, \code{O2}, \code{E}, \code{leftContextSize}, \code{rightContextSize}, and \code{w}.
+#'   \item Association measures (e.g. \code{logDice}, \code{ll}, \code{mi}, ...), one column per requested scorer.
+#'   \item Per-labelled association scores produced by multi-VC comparisons using the pattern \code{<measure>_<label>}.
+#'   \item Ranks per label/measure with the pattern \code{rank_<label>_<measure>} (1 is best) and the corresponding percentile ranks \code{percentile_rank_<label>_<measure>}.
+#'   \item Pairwise contrasts for two-label comparisons, e.g. \code{delta_<measure>}, \code{delta_rank_<measure>}, and \code{delta_percentile_rank_<measure>}.
+#'   \item Summary columns describing the strongest labels per measure (\code{winner_*}, \code{runner_up_*}, \code{loser_*}, and \code{max_delta_*}), including winner/loser \code{webUIRequestUrl} columns. In multi-VC comparisons, missing per-label concordance URLs are derived from another available row URL for the same \code{node}/\code{collocate} by replacing the \code{cq} parameter with the target label's virtual corpus. Unsuffixed \code{winner_webUIRequestUrl} and \code{loser_webUIRequestUrl} columns are populated only when the score-based URL choices agree.
+#'   \item \code{imputed_<label>}, \code{n_imputed}, and \code{imputed}: flags marking rows whose scores were not observed for some label but imputed (see \code{missingScoreQuantile}). Filter with \code{dplyr::filter(!imputed)} to keep only collocates attested in every compared virtual corpus.
+#'   \item Optional helper columns such as \code{query}, \code{example}, or \code{url} when example retrieval is requested.
+#' }
+#' @section Interpreting multi-VC comparisons:
+#'
+#' `r lifecycle::badge("experimental")`
+#'
+#' The comparison columns produced when `vc` holds more than one virtual corpus
+#' are experimental: their names and semantics may still change in a future
+#' release without a deprecation cycle. Code that has to keep working across
+#' versions should select the columns it needs explicitly.
+#'
+#' They are an exploration aid, not a significance test. When reading them, keep
+#' three properties in mind.
+#'
+#' \strong{Imputed scores describe presence/absence, not contrast.} A collocate
+#' that passes the `minOccur` and `topCollocatesLimit` thresholds in one virtual
+#' corpus but not in another has no observed score for the latter. Such cells are
+#' imputed from a floor derived from the pooled result set (see
+#' `missingScoreQuantile`), so the corresponding `delta_*` and `max_delta_*`
+#' values measure the distance to that floor rather than an attested difference.
+#' The `imputed`, `n_imputed` and `imputed_<label>` columns mark these rows;
+#' `dplyr::filter(!imputed)` restricts the result to collocates attested
+#' everywhere, and `queryMissingScores = TRUE` replaces most imputed cells with
+#' scores actually retrieved from the backend.
+#'
+#' \strong{Imputed values are relative to one analysis.} The floor is computed
+#' from the scores present in the result at hand. Analysing a node on its own and
+#' analysing it together with other nodes therefore yield different imputed
+#' values, and deltas involving imputed cells are not comparable across separate
+#' calls. Deltas between observed scores are unaffected.
+#'
+#' \strong{Winners carry no uncertainty.} Unlike [ci()], which attaches
+#' confidence intervals to relative frequencies, the `winner_*` / `loser_*`
+#' columns simply order point estimates. A collocate wins by a hair on six
+#' occurrences exactly as decisively as one that wins by a wide margin on
+#' thousands. Consult the observed frequencies (`O`, `O1`, `O2`) and the
+#' `webUIRequestUrl` concordance links before drawing conclusions from a
+#' small difference.
+#'
+#' Note also that `rank_<label>_<measure>` and
+#' `percentile_rank_<label>_<measure>` are computed within each label, over that
+#' label's own candidate set. Candidate sets usually differ in size between
+#' virtual corpora, so rank-based deltas compare positions in populations of
+#' different sizes.
+#' @importFrom dplyr arrange desc slice_head bind_rows group_by mutate ungroup left_join select row_number all_of first
 #' @importFrom purrr pmap
-#' @importFrom tidyr expand_grid
+#' @importFrom tidyr expand_grid pivot_wider
+#' @importFrom rlang sym
 #'
 #' @examples
 #' \dontrun{
@@ -96,11 +156,23 @@ setMethod(
            threshold = 2.0,
            localStopwords = c(),
            collocateFilterRegex = "^[:alnum:]+-?[:alnum:]*$",
+           queryMissingScores = FALSE,
+           missingScoreQuantile = 0.05,
+           vcLabel = NA_character_,
+           cacheAs = NULL,
            ...) {
-    # https://stackoverflow.com/questions/8096313/no-visible-binding-for-global-variable-note-in-r-cmd-check
     word <- frequency <- O <- NULL
 
-    if (!exactFrequencies && (!is.na(withinSpan) && !is.null(withinSpan) && nchar(withinSpan) > 0)) {
+    if (!is.null(cacheAs) && !grepl("\\.rds$", cacheAs, ignore.case = TRUE)) {
+      cacheAs <- paste0(cacheAs, ".rds")
+    }
+
+    if (!is.null(cacheAs) && file.exists(cacheAs)) {
+      log_info(kco@verbose, sprintf("Loading collocation analysis from cache: %s\n", cacheAs))
+      return(readRDS(cacheAs))
+    }
+
+    if (!exactFrequencies && (!is.na(withinSpan) && !is.null(withinSpan) && nzchar(withinSpan))) {
       stop(sprintf("Not empty withinSpan (='%s') requires exactFrequencies=TRUE", withinSpan), call. = FALSE)
     }
 
@@ -110,9 +182,30 @@ setMethod(
       node <- lemmatizeWordQuery(node)
     }
 
+    vcNames <- names(vc)
+    if (is.null(vcNames)) {
+      vcNames <- rep(NA_character_, length(vc))
+    }
+
+    label_lookup <- NULL
+    if (!is.null(names(vc)) && length(vc) > 0) {
+      raw_names <- names(vc)
+      if (any(!is.na(raw_names) & raw_names != "")) {
+        label_lookup <- stats::setNames(raw_names, vc)
+      }
+    }
+
     result <- if (length(node) > 1 || length(vc) > 1) {
-      grid <- if (expand) expand_grid(node = node, vc = vc) else tibble(node = node, vc = vc)
-      purrr::pmap(grid, function(node, vc, ...) {
+      grid <- if (expand) {
+        tmp_grid <- tidyr::expand_grid(node = node, idx = seq_along(vc))
+        tmp_grid$vc <- vc[tmp_grid$idx]
+        tmp_grid$vcLabel <- vcNames[tmp_grid$idx]
+        tmp_grid[, c("node", "vc", "vcLabel"), drop = FALSE]
+      } else {
+        tibble(node = node, vc = vc, vcLabel = vcNames)
+      }
+
+      multi_result <- purrr::pmap(grid, function(node, vc, vcLabel, ...) {
         collocationAnalysis(kco,
           node = node,
           vc = vc,
@@ -129,11 +222,56 @@ setMethod(
           localStopwords = localStopwords,
           seed = seed,
           expand = expand,
+          missingScoreQuantile = missingScoreQuantile,
+          queryMissingScores = queryMissingScores,
+          collocateFilterRegex = collocateFilterRegex,
+          vcLabel = vcLabel,
           ...
         )
       }) |>
         bind_rows()
+
+      if (!"vc" %in% names(multi_result) || nrow(multi_result) == 0) {
+        multi_result
+      } else {
+        if (queryMissingScores) {
+          multi_result <- backfill_missing_scores(
+            multi_result,
+            grid = grid,
+            kco = kco,
+            ignoreCollocateCase = ignoreCollocateCase,
+            ...
+          )
+        }
+
+        if (!"label" %in% names(multi_result)) {
+          multi_result$label <- NA_character_
+        }
+
+        if (!is.null(label_lookup)) {
+          override <- unname(label_lookup[multi_result$vc])
+          missing_idx <- is.na(multi_result$label) | multi_result$label == ""
+          if (any(missing_idx)) {
+            multi_result$label[missing_idx] <- override[missing_idx]
+          }
+        }
+
+        missing_idx <- is.na(multi_result$label) | multi_result$label == ""
+        if (any(missing_idx)) {
+          multi_result$label[missing_idx] <- queryStringToLabel(multi_result$vc[missing_idx])
+        }
+
+        multi_result |>
+          add_multi_vc_comparisons(
+            missingScoreQuantile = missingScoreQuantile,
+            verbose = kco@verbose
+          )
+      }
     } else {
+      if ((is.na(vcLabel) || vcLabel == "") && length(vcNames) >= 1) {
+        vcLabel <- vcNames[1]
+      }
+
       set.seed(seed)
       candidates <- collocatesQuery(
         kco,
@@ -145,6 +283,7 @@ setMethod(
         searchHitsSampleLimit = searchHitsSampleLimit,
         ignoreCollocateCase = ignoreCollocateCase,
         stopwords = append(stopwords, localStopwords),
+        collocateFilterRegex = collocateFilterRegex,
         ...
       )
 
@@ -170,37 +309,60 @@ setMethod(
         tibble()
       }
     }
-    if (maxRecurse > 0 & length(result) > 0 && any(!!thresholdScore >= threshold)) {
-      recurseWith <- result |>
-        filter(!!as.name(thresholdScore) >= threshold)
-      result <- collocationAnalysis(
-        kco,
-        node = paste0("(", buildCollocationQuery(
-          removeWithinSpan(recurseWith$node, withinSpan),
-          recurseWith$collocate,
+
+    if (!is.na(vcLabel) && vcLabel != "" && "label" %in% names(result)) {
+      result$label <- rep(vcLabel, nrow(result))
+    }
+
+    threshold_col <- thresholdScore
+    if (maxRecurse > 0 && nrow(result) > 0 && threshold_col %in% names(result)) {
+      threshold_values <- result[[threshold_col]]
+      eligible_idx <- which(!is.na(threshold_values) & threshold_values >= threshold)
+      if (length(eligible_idx) > 0) {
+        recurseWith <- result[eligible_idx, , drop = FALSE]
+        result <- collocationAnalysis(
+          kco,
+          node = paste0("(", buildCollocationQuery(
+            removeWithinSpan(recurseWith$node, withinSpan),
+            recurseWith$collocate,
+            leftContextSize = leftContextSize,
+            rightContextSize = rightContextSize,
+            withinSpan = ""
+          ), ")"),
+          vc = vc,
+          minOccur = minOccur,
           leftContextSize = leftContextSize,
           rightContextSize = rightContextSize,
-          withinSpan = ""
-        ), ")"),
-        vc = vc,
-        minOccur = minOccur,
-        leftContextSize = leftContextSize,
-        rightContextSize = rightContextSize,
-        withinSpan = withinSpan,
-        maxRecurse = maxRecurse - 1,
-        stopwords = stopwords,
-        localStopwords = recurseWith$collocate,
-        exactFrequencies = exactFrequencies,
-        searchHitsSampleLimit = searchHitsSampleLimit,
-        topCollocatesLimit = topCollocatesLimit,
-        addExamples = FALSE
-      ) |>
-        bind_rows(result) |>
-        filter(logDice >= 2) |>
-        filter(O >= minOccur) |>
-        dplyr::arrange(dplyr::desc(logDice))
+          withinSpan = withinSpan,
+          maxRecurse = maxRecurse - 1,
+          stopwords = stopwords,
+          localStopwords = recurseWith$collocate,
+          exactFrequencies = exactFrequencies,
+          searchHitsSampleLimit = searchHitsSampleLimit,
+          topCollocatesLimit = topCollocatesLimit,
+          addExamples = FALSE,
+          missingScoreQuantile = missingScoreQuantile,
+          collocateFilterRegex = collocateFilterRegex,
+          queryMissingScores = queryMissingScores,
+          thresholdScore = thresholdScore,
+          threshold = threshold,
+          vcLabel = vcLabel
+        ) |>
+          bind_rows(result)
+
+        if (threshold_col %in% names(result)) {
+          threshold_values <- result[[threshold_col]]
+          keep_idx <- is.na(threshold_values) | threshold_values >= threshold
+          result <- result[keep_idx, , drop = FALSE]
+        }
+
+        result <- result |>
+          filter(O >= minOccur) |>
+          dplyr::arrange(dplyr::desc(logDice))
+      }
     }
-    if (addExamples && length(result) > 0) {
+
+    if (addExamples && nrow(result) > 0) {
       result$query <- buildCollocationQuery(
         result$node,
         result$collocate,
@@ -214,6 +376,50 @@ setMethod(
         vc = result$vc
       )
     }
+
+    if (!is.null(withinSpan) && !is.na(withinSpan) && nzchar(withinSpan) &&
+      nrow(result) > 0 &&
+      "webUIRequestUrl" %in% names(result) &&
+      "query" %in% names(result)) {
+      candidate_rows <- which(!is.na(result$node) &
+        !grepl("focus\\(", result$node, perl = TRUE) &
+        !is.na(result$query) & nzchar(result$query))
+
+      if (length(candidate_rows) > 0) {
+        focused_queries <- vapply(
+          result$query[candidate_rows],
+          inject_focus_into_query,
+          character(1)
+        )
+
+        changed <- focused_queries != result$query[candidate_rows]
+        if (any(changed)) {
+          indices <- candidate_rows[changed]
+          vc_values <- as.character(result$vc)
+          vc_values[is.na(vc_values)] <- ""
+
+          result$webUIRequestUrl[indices] <- mapply(
+            function(new_query, vc_value) {
+              buildWebUIRequestUrlFromString(
+                kco@KorAPUrl,
+                new_query,
+                vc = vc_value,
+                ql = "poliqarp"
+              )
+            },
+            focused_queries[changed],
+            vc_values[indices],
+            USE.NAMES = FALSE
+          )
+        }
+      }
+    }
+
+    if (!is.null(cacheAs)) {
+      log_info(kco@verbose, sprintf("Saving collocation analysis to cache: %s\n", cacheAs))
+      saveRDS(result, cacheAs)
+    }
+
     result
   }
 )
@@ -228,6 +434,935 @@ removeWithinSpan <- function(query, withinSpan) {
   needle <- sprintf("^contains\\(<%s>, ?(.*)\\)$", withinSpan)
   res <- gsub(needle, "\\1", res)
   return(res)
+}
+
+backfill_missing_scores <- function(result,
+                                    grid,
+                                    kco,
+                                    ignoreCollocateCase,
+                                    ...) {
+  if (!"vc" %in% names(result) || !"node" %in% names(result) || !"collocate" %in% names(result)) {
+    return(result)
+  }
+
+  if (nrow(result) == 0) {
+    return(result)
+  }
+
+  distinct_pairs <- dplyr::distinct(
+    result,
+    .data$node,
+    .data$collocate
+  )
+  if (nrow(distinct_pairs) == 0) {
+    return(result)
+  }
+
+  collocates_by_node <- split(as.character(distinct_pairs$collocate), distinct_pairs$node)
+  if (length(collocates_by_node) == 0) {
+    return(result)
+  }
+
+  required_combinations <- unique(as.data.frame(grid[, c("node", "vc", "vcLabel")], drop = FALSE))
+  for (i in seq_len(nrow(required_combinations))) {
+    node_value <- required_combinations$node[i]
+    vc_value <- required_combinations$vc[i]
+
+    collocate_pool <- collocates_by_node[[node_value]]
+    if (is.null(collocate_pool) || length(collocate_pool) == 0) {
+      next
+    }
+
+    existing_idx <- result$node == node_value & result$vc == vc_value
+    existing_collocates <- unique(as.character(result$collocate[existing_idx]))
+    missing_collocates <- setdiff(unique(collocate_pool), existing_collocates)
+    missing_collocates <- missing_collocates[!is.na(missing_collocates) & nzchar(missing_collocates)]
+
+    if (length(missing_collocates) == 0) {
+      next
+    }
+
+    context_rows <- result[result$node == node_value & result$vc == vc_value, , drop = FALSE]
+    if (nrow(context_rows) == 0) {
+      context_rows <- result[result$node == node_value, , drop = FALSE]
+    }
+
+    left_size <- context_rows$leftContextSize[!is.na(context_rows$leftContextSize)][1]
+    if (is.na(left_size) || length(left_size) == 0) {
+      left_size <- result$leftContextSize[!is.na(result$leftContextSize)][1]
+    }
+    if (is.na(left_size) || length(left_size) == 0) {
+      left_size <- 5
+    }
+
+    right_size <- context_rows$rightContextSize[!is.na(context_rows$rightContextSize)][1]
+    if (is.na(right_size) || length(right_size) == 0) {
+      right_size <- result$rightContextSize[!is.na(result$rightContextSize)][1]
+    }
+    if (is.na(right_size) || length(right_size) == 0) {
+      right_size <- 5
+    }
+
+    within_span_value <- ""
+    if ("query" %in% names(context_rows)) {
+      query_candidate <- context_rows$query[!is.na(context_rows$query) & nzchar(context_rows$query)][1]
+      if (!is.na(query_candidate) && nzchar(query_candidate)) {
+        match_one <- regexec("^\\(*contains\\(<([^>]+)>,", query_candidate)
+        matches <- regmatches(query_candidate, match_one)
+        if (length(matches) >= 1 && length(matches[[1]]) >= 2) {
+          within_span_value <- matches[[1]][2]
+        }
+      }
+    }
+
+    new_rows <- collocationScoreQuery(
+      kco,
+      node = node_value,
+      collocate = missing_collocates,
+      vc = vc_value,
+      leftContextSize = left_size,
+      rightContextSize = right_size,
+      ignoreCollocateCase = ignoreCollocateCase,
+      withinSpan = within_span_value,
+      ...
+    )
+
+    if (nrow(new_rows) == 0) {
+      next
+    }
+
+    if (!is.null(required_combinations$vcLabel[i]) && !is.na(required_combinations$vcLabel[i]) && required_combinations$vcLabel[i] != "" && "label" %in% names(new_rows)) {
+      new_rows$label <- required_combinations$vcLabel[i]
+    }
+
+    result <- dplyr::bind_rows(result, new_rows)
+  }
+
+  result
+}
+
+inject_focus_into_query <- function(query) {
+  if (is.null(query) || is.na(query)) {
+    return(query)
+  }
+
+  trimmed <- trimws(query)
+  if (!nzchar(trimmed)) {
+    return(query)
+  }
+
+  if (!grepl("^contains\\(<[^>]+>", trimmed, perl = TRUE)) {
+    return(query)
+  }
+
+  if (grepl("focus\\(", trimmed, perl = TRUE)) {
+    return(query)
+  }
+
+  pattern <- "^contains\\(<([^>]+)>\\s*,\\s*\\((.*)\\)\\)\\s*$"
+  matches <- regexec(pattern, trimmed, perl = TRUE)
+  components <- regmatches(trimmed, matches)
+  if (length(components) == 0 || length(components[[1]]) < 3) {
+    return(query)
+  }
+
+  span <- components[[1]][2]
+  inner <- components[[1]][3]
+  parts <- strsplit(inner, "\\|", perl = TRUE)[[1]]
+  parts <- trimws(parts)
+  parts <- parts[nzchar(parts)]
+
+  if (length(parts) == 0) {
+    return(query)
+  }
+
+  focused <- paste0("focus({", parts, "})")
+  combined <- paste(focused, collapse = " | ")
+
+  sprintf("contains(<%s>, (%s))", span, combined)
+}
+
+add_multi_vc_comparisons <- function(result, missingScoreQuantile = 0.05, verbose = FALSE) {
+  label <- node <- collocate <- vc <- webUIRequestUrl <- NULL
+
+  if (!"label" %in% names(result) || dplyr::n_distinct(result$label) < 2) {
+    return(result)
+  }
+
+  numeric_cols <- names(result)[vapply(result, is.numeric, logical(1))]
+  non_score_cols <- c("N", "O", "O1", "O2", "E", "w", "leftContextSize", "rightContextSize", "frequency")
+  score_cols <- setdiff(numeric_cols, non_score_cols)
+
+  if (length(score_cols) == 0) {
+    return(result)
+  }
+
+  compute_score_floor <- function(values) {
+    # Estimate a conservative floor so missing scores can be imputed without favoring any label
+    finite_values <- values[is.finite(values)]
+    if (length(finite_values) == 0) {
+      return(0)
+    }
+
+    prob <- min(max(missingScoreQuantile, 0), 0.5)
+    # Use a lower quantile as the anchor to stay near the weakest attested scores
+    q_val <- suppressWarnings(stats::quantile(finite_values,
+      probs = prob,
+      names = FALSE,
+      type = 7
+    ))
+
+    if (!is.finite(q_val)) {
+      q_val <- suppressWarnings(min(finite_values, na.rm = TRUE))
+    }
+
+    min_val <- suppressWarnings(min(finite_values, na.rm = TRUE))
+    if (!is.finite(min_val)) {
+      min_val <- 0
+    }
+
+    spread_candidates <- c(
+      suppressWarnings(stats::IQR(finite_values, na.rm = TRUE, type = 7)),
+      stats::sd(finite_values, na.rm = TRUE),
+      abs(q_val) * 0.1,
+      abs(min_val - q_val)
+    )
+    spread_candidates <- spread_candidates[is.finite(spread_candidates)]
+
+    spread <- 0
+    if (length(spread_candidates) > 0) {
+      spread <- max(spread_candidates)
+    }
+    if (!is.finite(spread) || spread == 0) {
+      spread <- max(abs(q_val), abs(min_val), 1e-06)
+    }
+
+    # Step away from the anchor by a robust spread estimate to avoid ties with real scores
+    candidate <- q_val - spread
+    if (!is.finite(candidate)) {
+      candidate <- min_val
+    }
+
+    floor_value <- suppressWarnings(min(c(candidate, min_val), na.rm = TRUE))
+    if (!is.finite(floor_value)) {
+      floor_value <- min_val
+    }
+    if (!is.finite(floor_value)) {
+      floor_value <- 0
+    }
+
+    floor_value
+  }
+
+  score_replacements <- stats::setNames(
+    vapply(score_cols, function(col) {
+      compute_score_floor(result[[col]])
+    }, numeric(1)),
+    score_cols
+  )
+
+  # The pivots below keep only the first row per node/collocate/label. Duplicates do occur
+  # legitimately (e.g. the same collocate found at several context positions), but silently
+  # discarding all but one of them would misrepresent the comparison, so say so.
+  comparison_keys <- paste(result$node, result$collocate, result$label, sep = "\r")
+  duplicate_keys <- unique(comparison_keys[duplicated(comparison_keys)])
+  if (length(duplicate_keys) > 0) {
+    warning(
+      sprintf(
+        paste0(
+          "%d node/collocate/label combination(s) occur more than once; only the first row ",
+          "of each is used for the multi-VC comparison columns. Consider ",
+          "mergeDuplicateCollocates() to combine context positions before comparing."
+        ),
+        length(duplicate_keys)
+      ),
+      call. = FALSE
+    )
+  }
+
+  comparison <- result |>
+    dplyr::select(node, collocate, label, dplyr::all_of(score_cols)) |>
+    tidyr::pivot_wider(
+      names_from = label,
+      values_from = dplyr::all_of(score_cols),
+      names_glue = "{.value}_{make.names(label)}",
+      values_fn = dplyr::first
+    )
+
+  raw_labels <- unique(result$label)
+  labels <- make.names(raw_labels)
+  label_map <- stats::setNames(raw_labels, labels)
+  vc_map <- result |>
+    dplyr::select(label, vc) |>
+    dplyr::filter(!is.na(label), label != "") |>
+    dplyr::distinct(label, .keep_all = TRUE)
+  vc_map <- stats::setNames(vc_map$vc, make.names(vc_map$label))
+
+  replace_web_ui_cq <- function(url, vc_value) {
+    if (length(url) == 0 || is.na(url) || url == "") {
+      return(NA_character_)
+    }
+    if (length(vc_value) == 0 || is.na(vc_value)) {
+      vc_value <- ""
+    }
+    encoded_vc <- urltools::url_encode(enc2utf8(as.character(vc_value)))
+    if (grepl("([?&]cq=)[^&]*", url, perl = TRUE)) {
+      return(sub("([?&]cq=)[^&]*", paste0("\\1", encoded_vc), url, perl = TRUE))
+    }
+    if (encoded_vc == "") {
+      return(url)
+    }
+    paste0(url, ifelse(grepl("\\?", url), "&", "?"), "cq=", encoded_vc)
+  }
+
+  if ("webUIRequestUrl" %in% names(result)) {
+    url_data <- result |>
+      dplyr::select(node, collocate, label, webUIRequestUrl) |>
+      tidyr::pivot_wider(
+        names_from = label,
+        values_from = webUIRequestUrl,
+        names_glue = "webUIRequestUrl_{make.names(label)}",
+        values_fn = dplyr::first
+      )
+
+    comparison <- dplyr::left_join(comparison, url_data, by = c("node", "collocate"))
+
+    url_cols <- paste0("webUIRequestUrl_", labels)
+    present_url_cols <- intersect(url_cols, names(comparison))
+    fallback_urls <- vapply(seq_len(nrow(comparison)), function(i) {
+      urls <- unlist(comparison[i, present_url_cols, drop = FALSE], use.names = FALSE)
+      urls <- as.character(urls)
+      urls <- urls[!is.na(urls) & urls != ""]
+      if (length(urls) == 0) {
+        NA_character_
+      } else {
+        urls[1]
+      }
+    }, character(1))
+
+    for (safe_label in labels) {
+      url_col <- paste0("webUIRequestUrl_", safe_label)
+      if (!url_col %in% names(comparison)) {
+        comparison[[url_col]] <- NA_character_
+      }
+      missing_urls <- is.na(comparison[[url_col]]) | comparison[[url_col]] == ""
+      if (any(missing_urls)) {
+        comparison[[url_col]][missing_urls] <- vapply(
+          fallback_urls[missing_urls],
+          replace_web_ui_cq,
+          character(1),
+          vc_value = vc_map[[safe_label]]
+        )
+      }
+    }
+  }
+
+  rank_data <- result |>
+    dplyr::distinct(node, collocate)
+
+  for (i in seq_along(raw_labels)) {
+    raw_lab <- raw_labels[i]
+    safe_lab <- labels[i]
+    label_df <- result[result$label == raw_lab, c("node", "collocate", score_cols), drop = FALSE]
+    if (nrow(label_df) == 0) {
+      next
+    }
+    label_df <- dplyr::distinct(label_df)
+    rank_tbl <- label_df[, c("node", "collocate"), drop = FALSE]
+    for (col in score_cols) {
+      rank_col_name <- paste0("rank_", safe_lab, "_", col)
+      percentile_col_name <- paste0("percentile_rank_", safe_lab, "_", col)
+      values <- label_df[[col]]
+      ranks <- rep(NA_real_, length(values))
+      percentiles <- rep(NA_real_, length(values))
+      valid_idx <- which(!is.na(values))
+      if (length(valid_idx) > 0) {
+        ranks[valid_idx] <- rank(-values[valid_idx], ties.method = "first")
+        total <- length(valid_idx)
+        percentiles[valid_idx] <- 1 - (ranks[valid_idx] - 1) / total
+      }
+      rank_tbl[[rank_col_name]] <- ranks
+      rank_tbl[[percentile_col_name]] <- percentiles
+    }
+    rank_data <- dplyr::left_join(rank_data, rank_tbl, by = c("node", "collocate"))
+  }
+
+  comparison <- dplyr::left_join(comparison, rank_data, by = c("node", "collocate"))
+
+  # Record which label/measure cells are absent *before* any imputation happens below.
+  # Deltas computed from imputed cells reflect presence/absence of the collocate in a
+  # virtual corpus, not a measured contrast, so users need to be able to tell them apart.
+  imputed_flags <- lapply(labels, function(safe_label) {
+    label_score_cols <- intersect(paste0(score_cols, "_", safe_label), names(comparison))
+    if (length(label_score_cols) == 0) {
+      return(rep(FALSE, nrow(comparison)))
+    }
+    Reduce(`|`, lapply(label_score_cols, function(col) is.na(comparison[[col]])))
+  })
+  names(imputed_flags) <- paste0("imputed_", labels)
+
+  rank_replacements <- numeric(0)
+  rank_column_names <- grep("^rank_", names(comparison), value = TRUE)
+  if (length(rank_column_names) > 0) {
+    rank_replacements <- stats::setNames(
+      vapply(rank_column_names, function(col) {
+        col_values <- comparison[[col]]
+        valid_values <- col_values[!is.na(col_values)]
+        if (length(valid_values) == 0) {
+          nrow(comparison) + 1
+        } else {
+          suppressWarnings(max(valid_values, na.rm = TRUE)) + 1
+        }
+      }, numeric(1)),
+      rank_column_names
+    )
+  }
+
+  percentile_replacements <- numeric(0)
+  percentile_column_names <- grep("^percentile_rank_", names(comparison), value = TRUE)
+  if (length(percentile_column_names) > 0) {
+    percentile_replacements <- stats::setNames(
+      rep(0, length(percentile_column_names)),
+      percentile_column_names
+    )
+  }
+
+  collapse_label_values <- function(indices, safe_labels_vec) {
+    if (length(indices) == 0) {
+      return(NA_character_)
+    }
+    labs <- label_map[safe_labels_vec[indices]]
+    fallback <- safe_labels_vec[indices]
+    labs[is.na(labs) | labs == ""] <- fallback[is.na(labs) | labs == ""]
+    labs <- labs[!is.na(labs) & labs != ""]
+    if (length(labs) == 0) {
+      return(NA_character_)
+    }
+    paste(unique(labs), collapse = ", ")
+  }
+
+  collapse_url_values <- function(indices, url_values) {
+    if (length(indices) == 0 || is.null(url_values)) {
+      return(NA_character_)
+    }
+    urls <- as.character(url_values[indices])
+    urls <- urls[!is.na(urls) & urls != ""]
+    if (length(urls) == 0) {
+      return(NA_character_)
+    }
+    paste(unique(urls), collapse = ", ")
+  }
+
+  if (length(labels) == 2) {
+    fill_scores <- function(x, y, measure_col) {
+      replacement <- score_replacements[[measure_col]]
+      fallback_min <- suppressWarnings(min(c(x, y), na.rm = TRUE))
+      if (!is.finite(fallback_min)) {
+        fallback_min <- 0
+      }
+      if (!is.null(replacement) && is.finite(replacement)) {
+        replacement <- min(replacement, fallback_min)
+      } else {
+        replacement <- fallback_min
+      }
+      if (!is.finite(replacement)) {
+        replacement <- 0
+      }
+      if (any(is.na(x))) {
+        x[is.na(x)] <- replacement
+      }
+      if (any(is.na(y))) {
+        y[is.na(y)] <- replacement
+      }
+      list(x = x, y = y)
+    }
+
+    fill_percentiles <- function(x, y, left_pct_col, right_pct_col) {
+      replacement_left <- percentile_replacements[[left_pct_col]]
+      if (is.null(replacement_left) || !is.finite(replacement_left)) {
+        replacement_left <- 0
+      }
+      replacement_right <- percentile_replacements[[right_pct_col]]
+      if (is.null(replacement_right) || !is.finite(replacement_right)) {
+        replacement_right <- 0
+      }
+      if (any(is.na(x))) {
+        x[is.na(x)] <- replacement_left
+      }
+      if (any(is.na(y))) {
+        y[is.na(y)] <- replacement_right
+      }
+      list(x = x, y = y)
+    }
+
+    fill_ranks <- function(x, y, left_rank_col, right_rank_col) {
+      fallback <- nrow(comparison) + 1
+      replacement_left <- rank_replacements[[left_rank_col]]
+      if (is.null(replacement_left) || !is.finite(replacement_left)) {
+        replacement_left <- fallback
+      }
+      replacement_right <- rank_replacements[[right_rank_col]]
+      if (is.null(replacement_right) || !is.finite(replacement_right)) {
+        replacement_right <- fallback
+      }
+      if (any(is.na(x))) {
+        x[is.na(x)] <- replacement_left
+      }
+      if (any(is.na(y))) {
+        y[is.na(y)] <- replacement_right
+      }
+      list(x = x, y = y)
+    }
+
+    left_label <- labels[1]
+    right_label <- labels[2]
+
+    for (col in score_cols) {
+      left_col <- paste0(col, "_", left_label)
+      right_col <- paste0(col, "_", right_label)
+      if (!all(c(left_col, right_col) %in% names(comparison))) {
+        next
+      }
+      filled <- fill_scores(comparison[[left_col]], comparison[[right_col]], col)
+      comparison[[left_col]] <- filled$x
+      comparison[[right_col]] <- filled$y
+      comparison[[paste0("delta_", col)]] <- filled$x - filled$y
+      rank_left <- paste0("rank_", left_label, "_", col)
+      rank_right <- paste0("rank_", right_label, "_", col)
+      if (all(c(rank_left, rank_right) %in% names(comparison))) {
+        filled_rank <- fill_ranks(
+          comparison[[rank_left]],
+          comparison[[rank_right]],
+          rank_left,
+          rank_right
+        )
+        comparison[[paste0("delta_rank_", col)]] <- filled_rank$x - filled_rank$y
+      }
+      pct_left <- paste0("percentile_rank_", left_label, "_", col)
+      pct_right <- paste0("percentile_rank_", right_label, "_", col)
+      if (all(c(pct_left, pct_right) %in% names(comparison))) {
+        filled_pct <- fill_percentiles(
+          comparison[[pct_left]],
+          comparison[[pct_right]],
+          pct_left,
+          pct_right
+        )
+        comparison[[paste0("delta_percentile_rank_", col)]] <- filled_pct$x - filled_pct$y
+      }
+    }
+  }
+
+  for (col in score_cols) {
+    value_cols <- paste0(col, "_", labels)
+    existing <- value_cols %in% names(comparison)
+    if (!any(existing)) {
+      next
+    }
+    value_cols <- value_cols[existing]
+    safe_labels <- labels[existing]
+
+    score_values <- comparison[, value_cols, drop = FALSE]
+
+    winner_label_col <- paste0("winner_", col)
+    winner_value_col <- paste0("winner_", col, "_value")
+    winner_url_col <- paste0("winner_", col, "_webUIRequestUrl")
+    runner_label_col <- paste0("runner_up_", col)
+    runner_value_col <- paste0("runner_up_", col, "_value")
+    loser_label_col <- paste0("loser_", col)
+    loser_value_col <- paste0("loser_", col, "_value")
+    loser_url_col <- paste0("loser_", col, "_webUIRequestUrl")
+    max_delta_col <- paste0("max_delta_", col)
+    url_cols <- paste0("webUIRequestUrl_", safe_labels)
+    has_urls <- all(url_cols %in% names(comparison))
+    url_values <- if (has_urls) comparison[, url_cols, drop = FALSE] else NULL
+
+    if (nrow(score_values) == 0) {
+      comparison[[winner_label_col]] <- character(0)
+      comparison[[winner_value_col]] <- numeric(0)
+      if (has_urls) {
+        comparison[[winner_url_col]] <- character(0)
+      }
+      comparison[[runner_label_col]] <- character(0)
+      comparison[[runner_value_col]] <- numeric(0)
+      comparison[[loser_label_col]] <- character(0)
+      comparison[[loser_value_col]] <- numeric(0)
+      if (has_urls) {
+        comparison[[loser_url_col]] <- character(0)
+      }
+      comparison[[max_delta_col]] <- numeric(0)
+      next
+    }
+
+    score_matrix <- as.matrix(score_values)
+    storage.mode(score_matrix) <- "numeric"
+
+    n_rows <- nrow(score_matrix)
+    winner_labels <- rep(NA_character_, n_rows)
+    winner_values <- rep(NA_real_, n_rows)
+    winner_urls <- rep(NA_character_, n_rows)
+    runner_labels <- rep(NA_character_, n_rows)
+    runner_values <- rep(NA_real_, n_rows)
+    loser_labels <- rep(NA_character_, n_rows)
+    loser_values <- rep(NA_real_, n_rows)
+    loser_urls <- rep(NA_character_, n_rows)
+    max_deltas <- rep(NA_real_, n_rows)
+
+    if (n_rows > 0) {
+      for (i in seq_len(n_rows)) {
+        numeric_row <- as.numeric(score_matrix[i, ])
+        if (all(is.na(numeric_row))) {
+          next
+        }
+
+        replacement <- score_replacements[[col]]
+        fallback_min <- suppressWarnings(min(numeric_row, na.rm = TRUE))
+        if (!is.finite(fallback_min)) {
+          fallback_min <- 0
+        }
+        if (!is.null(replacement) && is.finite(replacement)) {
+          replacement <- min(replacement, fallback_min)
+        } else {
+          replacement <- fallback_min
+        }
+        if (!is.finite(replacement)) {
+          replacement <- 0
+        }
+        if (any(is.na(numeric_row))) {
+          numeric_row[is.na(numeric_row)] <- replacement
+        }
+        score_matrix[i, ] <- numeric_row
+
+        max_val <- suppressWarnings(max(numeric_row, na.rm = TRUE))
+        max_idx <- which(numeric_row == max_val)
+        winner_labels[i] <- collapse_label_values(max_idx, safe_labels)
+        winner_values[i] <- max_val
+        if (has_urls) {
+          winner_urls[i] <- collapse_url_values(max_idx, url_values[i, ])
+        }
+
+        unique_vals <- sort(unique(numeric_row), decreasing = TRUE)
+        if (length(unique_vals) >= 2) {
+          runner_val <- unique_vals[2]
+          runner_idx <- which(numeric_row == runner_val)
+          runner_labels[i] <- collapse_label_values(runner_idx, safe_labels)
+          runner_values[i] <- runner_val
+        }
+
+        min_val <- suppressWarnings(min(numeric_row, na.rm = TRUE))
+        min_idx <- which(numeric_row == min_val)
+        loser_labels[i] <- collapse_label_values(min_idx, safe_labels)
+        loser_values[i] <- min_val
+        if (has_urls) {
+          loser_urls[i] <- collapse_url_values(min_idx, url_values[i, ])
+        }
+
+        if (is.finite(max_val) && is.finite(min_val)) {
+          max_deltas[i] <- max_val - min_val
+        }
+      }
+    }
+
+    comparison[, value_cols] <- score_matrix
+    comparison[[winner_label_col]] <- winner_labels
+    comparison[[winner_value_col]] <- winner_values
+    if (has_urls) {
+      comparison[[winner_url_col]] <- winner_urls
+    }
+    comparison[[runner_label_col]] <- runner_labels
+    comparison[[runner_value_col]] <- runner_values
+    comparison[[loser_label_col]] <- loser_labels
+    comparison[[loser_value_col]] <- loser_values
+    if (has_urls) {
+      comparison[[loser_url_col]] <- loser_urls
+    }
+    comparison[[max_delta_col]] <- max_deltas
+  }
+
+  for (col in score_cols) {
+    rank_cols <- paste0("rank_", labels, "_", col)
+    existing <- rank_cols %in% names(comparison)
+    if (!any(existing)) {
+      next
+    }
+    rank_cols <- rank_cols[existing]
+    safe_labels <- labels[existing]
+    rank_values <- comparison[, rank_cols, drop = FALSE]
+
+    winner_rank_label_col <- paste0("winner_rank_", col)
+    winner_rank_value_col <- paste0("winner_rank_", col, "_value")
+    winner_rank_url_col <- paste0("winner_rank_", col, "_webUIRequestUrl")
+    runner_rank_label_col <- paste0("runner_up_rank_", col)
+    runner_rank_value_col <- paste0("runner_up_rank_", col, "_value")
+    loser_rank_label_col <- paste0("loser_rank_", col)
+    loser_rank_value_col <- paste0("loser_rank_", col, "_value")
+    loser_rank_url_col <- paste0("loser_rank_", col, "_webUIRequestUrl")
+    max_delta_rank_col <- paste0("max_delta_rank_", col)
+    url_cols <- paste0("webUIRequestUrl_", safe_labels)
+    has_urls <- all(url_cols %in% names(comparison))
+    url_values <- if (has_urls) comparison[, url_cols, drop = FALSE] else NULL
+
+    if (nrow(rank_values) == 0) {
+      comparison[[winner_rank_label_col]] <- character(0)
+      comparison[[winner_rank_value_col]] <- numeric(0)
+      if (has_urls) {
+        comparison[[winner_rank_url_col]] <- character(0)
+      }
+      comparison[[runner_rank_label_col]] <- character(0)
+      comparison[[runner_rank_value_col]] <- numeric(0)
+      comparison[[loser_rank_label_col]] <- character(0)
+      comparison[[loser_rank_value_col]] <- numeric(0)
+      if (has_urls) {
+        comparison[[loser_rank_url_col]] <- character(0)
+      }
+      comparison[[max_delta_rank_col]] <- numeric(0)
+      next
+    }
+
+    rank_matrix <- as.matrix(rank_values)
+    storage.mode(rank_matrix) <- "numeric"
+
+    n_rows <- nrow(rank_matrix)
+    winner_labels <- rep(NA_character_, n_rows)
+    winner_values <- rep(NA_real_, n_rows)
+    winner_urls <- rep(NA_character_, n_rows)
+    runner_labels <- rep(NA_character_, n_rows)
+    runner_values <- rep(NA_real_, n_rows)
+    loser_labels <- rep(NA_character_, n_rows)
+    loser_values <- rep(NA_real_, n_rows)
+    loser_urls <- rep(NA_character_, n_rows)
+    max_deltas <- rep(NA_real_, n_rows)
+
+    for (i in seq_len(n_rows)) {
+      numeric_row <- as.numeric(rank_matrix[i, ])
+      if (all(is.na(numeric_row))) {
+        next
+      }
+
+      if (length(rank_cols) > 0) {
+        replacement_vec <- rank_replacements[rank_cols]
+        replacement_vec[is.na(replacement_vec)] <- nrow(comparison) + 1
+        missing_idx <- which(is.na(numeric_row))
+        if (length(missing_idx) > 0) {
+          numeric_row[missing_idx] <- replacement_vec[missing_idx]
+        }
+      }
+
+      valid_idx <- seq_along(numeric_row)
+      valid_values <- numeric_row[valid_idx]
+      min_val <- suppressWarnings(min(valid_values, na.rm = TRUE))
+      min_positions <- valid_idx[which(valid_values == min_val)]
+      winner_labels[i] <- collapse_label_values(min_positions, safe_labels)
+      winner_values[i] <- min_val
+      if (has_urls) {
+        winner_urls[i] <- collapse_url_values(min_positions, url_values[i, ])
+      }
+
+      ordered_vals <- sort(unique(valid_values), decreasing = FALSE)
+      if (length(ordered_vals) >= 2) {
+        runner_val <- ordered_vals[2]
+        runner_positions <- valid_idx[which(valid_values == runner_val)]
+        runner_labels[i] <- collapse_label_values(runner_positions, safe_labels)
+        runner_values[i] <- runner_val
+      }
+
+      max_val <- suppressWarnings(max(valid_values, na.rm = TRUE))
+      max_positions <- valid_idx[which(valid_values == max_val)]
+      loser_labels[i] <- collapse_label_values(max_positions, safe_labels)
+      loser_values[i] <- max_val
+      if (has_urls) {
+        loser_urls[i] <- collapse_url_values(max_positions, url_values[i, ])
+      }
+
+      if (is.finite(max_val) && is.finite(min_val)) {
+        max_deltas[i] <- max_val - min_val
+      }
+    }
+
+    comparison[[winner_rank_label_col]] <- winner_labels
+    comparison[[winner_rank_value_col]] <- winner_values
+    if (has_urls) {
+      comparison[[winner_rank_url_col]] <- winner_urls
+    }
+    comparison[[runner_rank_label_col]] <- runner_labels
+    comparison[[runner_rank_value_col]] <- runner_values
+    comparison[[loser_rank_label_col]] <- loser_labels
+    comparison[[loser_rank_value_col]] <- loser_values
+    if (has_urls) {
+      comparison[[loser_rank_url_col]] <- loser_urls
+    }
+    comparison[[max_delta_rank_col]] <- max_deltas
+  }
+
+  for (col in score_cols) {
+    pct_cols <- paste0("percentile_rank_", labels, "_", col)
+    existing <- pct_cols %in% names(comparison)
+    if (!any(existing)) {
+      next
+    }
+    pct_cols <- pct_cols[existing]
+    safe_labels <- labels[existing]
+    pct_values <- comparison[, pct_cols, drop = FALSE]
+
+    winner_pct_label_col <- paste0("winner_percentile_rank_", col)
+    winner_pct_value_col <- paste0("winner_percentile_rank_", col, "_value")
+    winner_pct_url_col <- paste0("winner_percentile_rank_", col, "_webUIRequestUrl")
+    runner_pct_label_col <- paste0("runner_up_percentile_rank_", col)
+    runner_pct_value_col <- paste0("runner_up_percentile_rank_", col, "_value")
+    loser_pct_label_col <- paste0("loser_percentile_rank_", col)
+    loser_pct_value_col <- paste0("loser_percentile_rank_", col, "_value")
+    loser_pct_url_col <- paste0("loser_percentile_rank_", col, "_webUIRequestUrl")
+    max_delta_pct_col <- paste0("max_delta_percentile_rank_", col)
+    url_cols <- paste0("webUIRequestUrl_", safe_labels)
+    has_urls <- all(url_cols %in% names(comparison))
+    url_values <- if (has_urls) comparison[, url_cols, drop = FALSE] else NULL
+
+    if (nrow(pct_values) == 0) {
+      comparison[[winner_pct_label_col]] <- character(0)
+      comparison[[winner_pct_value_col]] <- numeric(0)
+      if (has_urls) {
+        comparison[[winner_pct_url_col]] <- character(0)
+      }
+      comparison[[runner_pct_label_col]] <- character(0)
+      comparison[[runner_pct_value_col]] <- numeric(0)
+      comparison[[loser_pct_label_col]] <- character(0)
+      comparison[[loser_pct_value_col]] <- numeric(0)
+      if (has_urls) {
+        comparison[[loser_pct_url_col]] <- character(0)
+      }
+      comparison[[max_delta_pct_col]] <- numeric(0)
+      next
+    }
+
+    pct_matrix <- as.matrix(pct_values)
+    storage.mode(pct_matrix) <- "numeric"
+
+    n_rows <- nrow(pct_matrix)
+    winner_labels <- rep(NA_character_, n_rows)
+    winner_values <- rep(NA_real_, n_rows)
+    winner_urls <- rep(NA_character_, n_rows)
+    runner_labels <- rep(NA_character_, n_rows)
+    runner_values <- rep(NA_real_, n_rows)
+    loser_labels <- rep(NA_character_, n_rows)
+    loser_values <- rep(NA_real_, n_rows)
+    loser_urls <- rep(NA_character_, n_rows)
+    max_deltas <- rep(NA_real_, n_rows)
+
+    if (n_rows > 0) {
+      for (i in seq_len(n_rows)) {
+        numeric_row <- as.numeric(pct_matrix[i, ])
+        if (all(is.na(numeric_row))) {
+          next
+        }
+
+        if (any(is.na(numeric_row))) {
+          numeric_row[is.na(numeric_row)] <- 0
+        }
+        pct_matrix[i, ] <- numeric_row
+
+        max_val <- suppressWarnings(max(numeric_row, na.rm = TRUE))
+        max_idx <- which(numeric_row == max_val)
+        winner_labels[i] <- collapse_label_values(max_idx, safe_labels)
+        winner_values[i] <- max_val
+        if (has_urls) {
+          winner_urls[i] <- collapse_url_values(max_idx, url_values[i, ])
+        }
+
+        unique_vals <- sort(unique(numeric_row), decreasing = TRUE)
+        if (length(unique_vals) >= 2) {
+          runner_val <- unique_vals[2]
+          runner_idx <- which(numeric_row == runner_val)
+          runner_labels[i] <- collapse_label_values(runner_idx, safe_labels)
+          runner_values[i] <- runner_val
+        }
+
+        min_val <- suppressWarnings(min(numeric_row, na.rm = TRUE))
+        min_idx <- which(numeric_row == min_val)
+        loser_labels[i] <- collapse_label_values(min_idx, safe_labels)
+        loser_values[i] <- min_val
+        if (has_urls) {
+          loser_urls[i] <- collapse_url_values(min_idx, url_values[i, ])
+        }
+
+        if (is.finite(max_val) && is.finite(min_val)) {
+          max_deltas[i] <- max_val - min_val
+        }
+      }
+    }
+
+    comparison[, pct_cols] <- pct_matrix
+    comparison[[winner_pct_label_col]] <- winner_labels
+    comparison[[winner_pct_value_col]] <- winner_values
+    if (has_urls) {
+      comparison[[winner_pct_url_col]] <- winner_urls
+    }
+    comparison[[runner_pct_label_col]] <- runner_labels
+    comparison[[runner_pct_value_col]] <- runner_values
+    comparison[[loser_pct_label_col]] <- loser_labels
+    comparison[[loser_pct_value_col]] <- loser_values
+    if (has_urls) {
+      comparison[[loser_pct_url_col]] <- loser_urls
+    }
+    comparison[[max_delta_pct_col]] <- max_deltas
+  }
+
+  for (flag_col in names(imputed_flags)) {
+    comparison[[flag_col]] <- imputed_flags[[flag_col]]
+  }
+  if (length(imputed_flags) > 0) {
+    comparison$n_imputed <- as.integer(Reduce(`+`, lapply(imputed_flags, as.integer)))
+  } else {
+    comparison$n_imputed <- rep(0L, nrow(comparison))
+  }
+  comparison$imputed <- comparison$n_imputed > 0L
+
+  n_imputed_rows <- sum(comparison$imputed)
+  if (n_imputed_rows > 0) {
+    log_info(verbose, sprintf(
+      paste0(
+        "Imputed scores for %d of %d node/collocate combinations (%d of %d label cells) ",
+        "that are not attested in every virtual corpus. Their delta and winner/loser ",
+        "columns reflect presence vs. absence rather than a measured contrast; see the ",
+        "`imputed` column and `queryMissingScores`.\n"
+      ),
+      n_imputed_rows,
+      nrow(comparison),
+      sum(comparison$n_imputed),
+      nrow(comparison) * length(labels)
+    ))
+  }
+
+  collapse_consensus_url_columns <- function(url_cols) {
+    if (length(url_cols) == 0) {
+      return(rep(NA_character_, nrow(comparison)))
+    }
+    vapply(seq_len(nrow(comparison)), function(i) {
+      urls <- unlist(comparison[i, url_cols, drop = FALSE], use.names = FALSE)
+      urls <- as.character(urls)
+      urls <- urls[!is.na(urls) & urls != ""]
+      urls <- unique(urls)
+      if (length(urls) == 1) {
+        urls
+      } else {
+        NA_character_
+      }
+    }, character(1))
+  }
+
+  winner_score_url_cols <- intersect(paste0("winner_", score_cols, "_webUIRequestUrl"), names(comparison))
+  loser_score_url_cols <- intersect(paste0("loser_", score_cols, "_webUIRequestUrl"), names(comparison))
+  if (length(winner_score_url_cols) > 0) {
+    comparison$winner_webUIRequestUrl <- collapse_consensus_url_columns(winner_score_url_cols)
+  }
+  if (length(loser_score_url_cols) > 0) {
+    comparison$loser_webUIRequestUrl <- collapse_consensus_url_columns(loser_score_url_cols)
+  }
+
+  url_helper_cols <- intersect(paste0("webUIRequestUrl_", labels), names(comparison))
+  if (length(url_helper_cols) > 0) {
+    comparison <- dplyr::select(comparison, -dplyr::all_of(url_helper_cols))
+  }
+
+  dplyr::left_join(result, comparison, by = c("node", "collocate"))
 }
 
 #' @importFrom magrittr debug_pipe
@@ -258,7 +1393,7 @@ matches2FreqTable <- function(matches,
       ))
     }
     log_info(verbose, paste("Joining", nrow(matches), "kwics\n"))
-    for (i in 1:nrow(matches)) {
+    for (i in seq_len(nrow(matches))) {
       oldTable <- matches2FreqTable(
         matches,
         i,
@@ -387,7 +1522,7 @@ snippet2FreqTable <- function(snippet,
 #' @return Vector of synsemantic stopwords.
 #' @export
 synsemanticStopwords <- function(...) {
-  res <- c(
+  base <- c(
     "der",
     "die",
     "und",
@@ -401,28 +1536,23 @@ synsemanticStopwords <- function(...) {
     "ist",
     "auf",
     "sich",
-    "Die",
     "des",
     "dem",
     "nicht",
     "ein",
-    "Ein",
     "eine",
-    "Eine",
     "es",
     "auch",
     "an",
     "als",
     "am",
     "aus",
-    "Der",
     "bei",
     "er",
     "dass",
     "sie",
     "nach",
     "um",
-    "Das",
     "zum",
     "noch",
     "war",
@@ -435,12 +1565,14 @@ synsemanticStopwords <- function(...) {
     "\u00fcber",
     "so",
     "aber",
-    "Eine",
     "diese",
-    "Diese",
     "oder"
   )
-  return(res)
+
+  lower <- unique(tolower(base))
+  capitalized <- paste0(toupper(substr(lower, 1, 1)), substring(lower, 2))
+
+  unique(c(lower, capitalized))
 }
 
 
@@ -483,6 +1615,7 @@ collocatesQuery <-
            searchHitsSampleLimit = 20000,
            ignoreCollocateCase = FALSE,
            stopwords = c(),
+           collocateFilterRegex = "^[:alnum:]+-?[:alnum:]*$",
            ...) {
     frequency <- NULL
     q <- corpusQuery(kco, query, vc, metadataOnly = F, ...)
@@ -497,6 +1630,7 @@ collocatesQuery <-
         rightContextSize = rightContextSize,
         ignoreCollocateCase = ignoreCollocateCase,
         stopwords = stopwords,
+        collocateFilterRegex = collocateFilterRegex,
         ...,
         verbose = kco@verbose
       ) |>

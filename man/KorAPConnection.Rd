@@ -5,6 +5,21 @@
 \alias{KorAPConnection-class}
 \alias{KorAPConnection}
 \title{Connect to KorAP Server}
+\usage{
+KorAPConnection(
+  KorAPUrl = defaultKorAPUrl(),
+  apiVersion = "v1.0",
+  apiUrl,
+  accessToken = getAccessToken(KorAPUrl),
+  oauthClient = NULL,
+  oauthScope = "search match_info",
+  authorizationSupported = TRUE,
+  userAgent = "R-KorAP-Client",
+  timeout = 240,
+  verbose = FALSE,
+  cache = TRUE
+)
+}
 \arguments{
 \item{KorAPUrl}{URL of the web user interface of the KorAP server instance you want to access.
 Defaults to the environment variable \code{KORAP_URL} if set and to the IDS Mannheim KorAP main instance
@@ -109,7 +124,7 @@ For access to restricted corpora, authorize your connection:
 }
 
 \seealso{
-Other initialization functions: 
+Other initialization functions:
 \code{\link{auth,KorAPConnection-method}},
 \code{\link{clearAccessToken,KorAPConnection-method}},
 \code{\link{persistAccessToken,KorAPConnection-method}}

@@ -27,15 +27,19 @@
   threshold = 2,
   localStopwords = c(),
   collocateFilterRegex = "^[:alnum:]+-?[:alnum:]*$",
+  queryMissingScores = FALSE,
+  missingScoreQuantile = 0.05,
+  vcLabel = NA_character_,
+  cacheAs = NULL,
   ...
 )
 }
 \arguments{
 \item{kco}{\code{\link[=KorAPConnection]{KorAPConnection()}} object (obtained e.g. from \code{KorAPConnection()}}
 
-\item{node}{target word}
+\item{node}{target word or query as a single character string}
 
-\item{vc}{string describing the virtual corpus in which the query should be performed. An empty string (default) means the whole corpus, as far as it is license-wise accessible.}
+\item{vc}{character vector describing the virtual corpus or corpora in which the query should be performed. An empty string (default) means the whole corpus, as far as it is license-wise accessible.}
 
 \item{lemmatizeNodeQuery}{if TRUE, node query will be lemmatized, i.e. \verb{x -> [tt/l=x]}}
 
@@ -65,18 +69,39 @@
 
 \item{addExamples}{If TRUE, examples for instances of collocations will be added in a column \code{example}. This makes a difference in particular if \code{node} is given as a lemma query.}
 
-\item{thresholdScore}{association score function (see \code{\link{association-score-functions}}) to use for computing the threshold that is applied for recursive collocation analysis calls}
+\item{thresholdScore}{association score function (see \code{\link{association-score-functions}}) to use for computing the threshold that is applied for recursive collocation analysis calls (only applied when \code{maxRecurse > 0})}
 
-\item{threshold}{minimum value of \code{thresholdScore} function call to apply collocation analysis recursively}
+\item{threshold}{minimum value of \code{thresholdScore} function call to apply collocation analysis recursively (only applied when \code{maxRecurse > 0})}
 
 \item{localStopwords}{vector of stopwords that will not be considered as collocates in the current function call, but that will not be passed to recursive calls}
 
 \item{collocateFilterRegex}{allow only collocates matching the regular expression}
 
+\item{queryMissingScores}{if TRUE, attempt to retrieve corpus-based association scores for vc/collocate combinations that would otherwise be imputed, by re-querying the KorAP backend without applying the collocate frequency threshold}
+
+\item{missingScoreQuantile}{lower quantile (evaluated per association measure over the pooled result set) that anchors the adaptive floor used for imputing missing scores between virtual corpora; a robust spread is subtracted from this anchor so the imputed values stay at or below the weakest observed scores. Imputed cells are marked in the \verb{imputed*} columns; see the section on interpreting multi-VC comparisons below}
+
+\item{vcLabel}{optional label override for the current virtual corpus (used internally when named VC collections are expanded)}
+
+\item{cacheAs}{path to an RDS file for caching the result. If the file already exists, the cached result is loaded and returned immediately without contacting the server. Otherwise the analysis is run normally and the result is saved to the file before returning. Defaults to \code{NULL} (no caching).}
+
 \item{...}{more arguments will be passed to \code{\link[=collocationScoreQuery]{collocationScoreQuery()}}}
 }
 \value{
-Tibble with top collocates, association scores, corresponding URLs for web user interface queries, etc.
+A tibble where each row represents a candidate collocate for the requested node.
+Columns include (depending on the selected association measures):
+
+\itemize{
+\item \code{node}, \code{collocate}, \code{vc}, \code{label}: identifiers for the query node, collocate, virtual corpus, and optional label.
+\item Frequency and contingency information such as \code{frequency}, \code{O}, \code{O1}, \code{O2}, \code{E}, \code{leftContextSize}, \code{rightContextSize}, and \code{w}.
+\item Association measures (e.g. \code{logDice}, \code{ll}, \code{mi}, ...), one column per requested scorer.
+\item Per-labelled association scores produced by multi-VC comparisons using the pattern \code{<measure>_<label>}.
+\item Ranks per label/measure with the pattern \code{rank_<label>_<measure>} (1 is best) and the corresponding percentile ranks \code{percentile_rank_<label>_<measure>}.
+\item Pairwise contrasts for two-label comparisons, e.g. \code{delta_<measure>}, \code{delta_rank_<measure>}, and \code{delta_percentile_rank_<measure>}.
+\item Summary columns describing the strongest labels per measure (\code{winner_*}, \code{runner_up_*}, \code{loser_*}, and \code{max_delta_*}), including winner/loser \code{webUIRequestUrl} columns. In multi-VC comparisons, missing per-label concordance URLs are derived from another available row URL for the same \code{node}/\code{collocate} by replacing the \code{cq} parameter with the target label's virtual corpus. Unsuffixed \code{winner_webUIRequestUrl} and \code{loser_webUIRequestUrl} columns are populated only when the score-based URL choices agree.
+\item \code{imputed_<label>}, \code{n_imputed}, and \code{imputed}: flags marking rows whose scores were not observed for some label but imputed (see \code{missingScoreQuantile}). Filter with \code{dplyr::filter(!imputed)} to keep only collocates attested in every compared virtual corpus.
+\item Optional helper columns such as \code{query}, \code{example}, or \code{url} when example retrieval is requested.
+}
 }
 \description{
 Performs a collocation analysis for the given node (or query)
@@ -97,6 +122,51 @@ In this case, the client library will fall back to client-side tokenization whic
 This might lead to false negatives and to frequencies that differ from corresponding ones acquired via the web
 user interface.
 }
+\section{Interpreting multi-VC comparisons}{
+
+
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#experimental}{\figure{lifecycle-experimental.svg}{options: alt='[Experimental]'}}}{\strong{[Experimental]}}
+
+The comparison columns produced when \code{vc} holds more than one virtual corpus
+are experimental: their names and semantics may still change in a future
+release without a deprecation cycle. Code that has to keep working across
+versions should select the columns it needs explicitly.
+
+They are an exploration aid, not a significance test. When reading them, keep
+three properties in mind.
+
+\strong{Imputed scores describe presence/absence, not contrast.} A collocate
+that passes the \code{minOccur} and \code{topCollocatesLimit} thresholds in one virtual
+corpus but not in another has no observed score for the latter. Such cells are
+imputed from a floor derived from the pooled result set (see
+\code{missingScoreQuantile}), so the corresponding \verb{delta_*} and \verb{max_delta_*}
+values measure the distance to that floor rather than an attested difference.
+The \code{imputed}, \code{n_imputed} and \verb{imputed_<label>} columns mark these rows;
+\code{dplyr::filter(!imputed)} restricts the result to collocates attested
+everywhere, and \code{queryMissingScores = TRUE} replaces most imputed cells with
+scores actually retrieved from the backend.
+
+\strong{Imputed values are relative to one analysis.} The floor is computed
+from the scores present in the result at hand. Analysing a node on its own and
+analysing it together with other nodes therefore yield different imputed
+values, and deltas involving imputed cells are not comparable across separate
+calls. Deltas between observed scores are unaffected.
+
+\strong{Winners carry no uncertainty.} Unlike \code{\link[=ci]{ci()}}, which attaches
+confidence intervals to relative frequencies, the \verb{winner_*} / \verb{loser_*}
+columns simply order point estimates. A collocate wins by a hair on six
+occurrences exactly as decisively as one that wins by a wide margin on
+thousands. Consult the observed frequencies (\code{O}, \code{O1}, \code{O2}) and the
+\code{webUIRequestUrl} concordance links before drawing conclusions from a
+small difference.
+
+Note also that \verb{rank_<label>_<measure>} and
+\verb{percentile_rank_<label>_<measure>} are computed within each label, over that
+label's own candidate set. Candidate sets usually differ in size between
+virtual corpora, so rank-based deltas compare positions in populations of
+different sizes.
+}
+
 \examples{
 \dontrun{
 
@@ -121,9 +191,9 @@ KorAPConnection(verbose = TRUE) |>
 
 }
 \seealso{
-Other collocation analysis functions: 
+Other collocation analysis functions:
 \code{\link{association-score-functions}},
 \code{\link{collocationScoreQuery,KorAPConnection-method}},
-\code{\link{synsemanticStopwords}()}
+\code{\link[=synsemanticStopwords]{synsemanticStopwords()}}
 }
 \concept{collocation analysis functions}
