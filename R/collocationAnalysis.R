@@ -1,6 +1,26 @@
 #' @include logging.R
 setGeneric("collocationAnalysis", function(kco, ...) standardGeneric("collocationAnalysis"))
 
+#' Keep only collocates that are attested often enough relative to expectation
+#'
+#' Rows without an expected frequency are kept, as are all rows if the ratio is
+#' 0 or `NULL`, which switches the filter off.
+#'
+#' @param result collocation analysis result
+#' @param minObservedExpectedRatio minimum ratio of observed to expected
+#'   co-occurrence frequency
+#' @return `result` without the rows that fall below the ratio
+#' @noRd
+filterByObservedExpectedRatio <- function(result, minObservedExpectedRatio) {
+  if (is.null(minObservedExpectedRatio) || is.na(minObservedExpectedRatio) ||
+    minObservedExpectedRatio <= 0 || nrow(result) == 0 ||
+    !all(c("O", "E") %in% names(result))) {
+    return(result)
+  }
+  result[is.na(result$E) | result$O >= minObservedExpectedRatio * result$E, , drop = FALSE]
+}
+
+
 #' Collocation analysis
 #'
 #' @family collocation analysis functions
@@ -39,13 +59,35 @@ setGeneric("collocationAnalysis", function(kco, ...) standardGeneric("collocatio
 #' @param maxRecurse             apply collocation analysis recursively `maxRecurse` times
 #' @param addExamples            If TRUE, examples for instances of collocations will be added in a column `example`. This makes a difference in particular if `node` is given as a lemma query.
 #' @param thresholdScore         association score function (see \code{\link{association-score-functions}}) to use for computing the threshold that is applied for recursive collocation analysis calls (only applied when \code{maxRecurse > 0})
-#' @param threshold              minimum value of `thresholdScore` function call to apply collocation analysis recursively (only applied when \code{maxRecurse > 0})
+#' @param threshold              minimum value of `thresholdScore` function call to apply collocation analysis recursively (only applied when \code{maxRecurse > 0}).
+#'   Note that the default score, `logDice`, expresses how salient a pair is
+#'   rather than how surprising, so that a frequent collocate can pass it while
+#'   co-occurring less often than expected. `minObservedExpectedRatio` keeps
+#'   those out. See the "Salience versus surprise" section of
+#'   \code{\link{association-score-functions}}.
+#' @param minObservedExpectedRatio minimum ratio of observed to expected co-occurrence
+#'   frequency a collocate must reach. Defaults to 1, which keeps only collocates
+#'   that occur at least as often as expected by chance, corresponding to a
+#'   non-negative `pmi`. Without it, frequent words can end up among the top
+#'   collocates by `logDice` although the node does not attract them at all (see
+#'   the "Salience versus surprise" section of
+#'   \code{\link{association-score-functions}}). Raise it to demand a stronger
+#'   contrast, e.g. 2 for collocates occurring at least twice as often as
+#'   expected, or set it to 0 to switch the filter off and obtain the unfiltered
+#'   result of earlier versions, e.g. in order to study repulsion.
 #' @param localStopwords         vector of stopwords that will not be considered as collocates in the current function call, but that will not be passed to recursive calls
 #' @param collocateFilterRegex   allow only collocates matching the regular expression
 #' @param queryMissingScores     if TRUE, attempt to retrieve corpus-based association scores for vc/collocate combinations that would otherwise be imputed, by re-querying the KorAP backend without applying the collocate frequency threshold
 #' @param missingScoreQuantile   lower quantile (evaluated per association measure over the pooled result set) that anchors the adaptive floor used for imputing missing scores between virtual corpora; a robust spread is subtracted from this anchor so the imputed values stay at or below the weakest observed scores. Imputed cells are marked in the `imputed*` columns; see the section on interpreting multi-VC comparisons below
 #' @param vcLabel optional label override for the current virtual corpus (used internally when named VC collections are expanded)
-#' @param cacheAs                path to an RDS file for caching the result. If the file already exists, the cached result is loaded and returned immediately without contacting the server. Otherwise the analysis is run normally and the result is saved to the file before returning. Defaults to \code{NULL} (no caching).
+#' @param cacheAs path to an RDS file to keep the result in. If the file exists and records the same call, it is read back instead of contacting the server; otherwise the query is run and its result stored there. Unlike the connection's `cache`, this file belongs to the caller, which is what keeps an analysis reproducible once the corpus has grown or the scores have changed. Defaults to \code{NULL} (no file).
+#'
+#'   The analysis parameters are stored alongside the result. If they differ from
+#'   those of the current call, the cached result would not be the one that was
+#'   asked for, so it is recomputed and the file overwritten, with a warning
+#'   naming the parameters that differ. Pass a different \code{cacheAs} file name
+#'   to keep an existing analysis. Cache files written by RKorAPClient 1.3.0 do
+#'   not contain the parameters yet and are used as they are.
 #' @param ...                    more arguments will be passed to [collocationScoreQuery()]
 #' @inheritParams collocationScoreQuery,KorAPConnection-method
 #' @return
@@ -60,7 +102,7 @@ setGeneric("collocationAnalysis", function(kco, ...) standardGeneric("collocatio
 #'   \item Ranks per label/measure with the pattern \code{rank_<label>_<measure>} (1 is best) and the corresponding percentile ranks \code{percentile_rank_<label>_<measure>}.
 #'   \item Pairwise contrasts for two-label comparisons, e.g. \code{delta_<measure>}, \code{delta_rank_<measure>}, and \code{delta_percentile_rank_<measure>}.
 #'   \item Summary columns describing the strongest labels per measure (\code{winner_*}, \code{runner_up_*}, \code{loser_*}, and \code{max_delta_*}), including winner/loser \code{webUIRequestUrl} columns. In multi-VC comparisons, missing per-label concordance URLs are derived from another available row URL for the same \code{node}/\code{collocate} by replacing the \code{cq} parameter with the target label's virtual corpus. Unsuffixed \code{winner_webUIRequestUrl} and \code{loser_webUIRequestUrl} columns are populated only when the score-based URL choices agree.
-#'   \item \code{imputed_<label>}, \code{n_imputed}, and \code{imputed}: flags marking rows whose scores were not observed for some label but imputed (see \code{missingScoreQuantile}). Filter with \code{dplyr::filter(!imputed)} to keep only collocates attested in every compared virtual corpus.
+#'   \item \code{imputed_<label>}: whether the score for that label was imputed rather than observed (see \code{missingScoreQuantile}). \code{n_imputed} counts them, and \code{imputed} is \code{n_imputed > 0}: it describes the node/collocate pair across all labels, not the label of the row it stands in. A row can therefore carry \code{imputed = TRUE} while its own scores are perfectly attested, because the pair is missing from some other virtual corpus - use \code{imputed_<label>} for the row itself. Filter with \code{dplyr::filter(!imputed)} to keep only collocates attested in every compared virtual corpus.
 #'   \item Optional helper columns such as \code{query}, \code{example}, or \code{url} when example retrieval is requested.
 #' }
 #' @section Interpreting multi-VC comparisons:
@@ -84,7 +126,20 @@ setGeneric("collocationAnalysis", function(kco, ...) standardGeneric("collocatio
 #' The `imputed`, `n_imputed` and `imputed_<label>` columns mark these rows;
 #' `dplyr::filter(!imputed)` restricts the result to collocates attested
 #' everywhere, and `queryMissingScores = TRUE` replaces most imputed cells with
-#' scores actually retrieved from the backend.
+#' scores actually retrieved from the backend. Mind what `imputed` is about: the
+#' pair, not the row. It is `TRUE` as soon as one label lacks the collocate, and
+#' stays `TRUE` on the rows of the labels where it is attested, which is what
+#' makes `dplyr::filter(!imputed)` drop the pair as a whole. Whether the row at
+#' hand rests on an imputed score is what `imputed_<label>` says.
+#'
+#' \strong{Per-label columns carry syntactic names.} The label in
+#' `<measure>_<label>`, `rank_<label>_<measure>` and `imputed_<label>` is the one
+#' the caller gave, put through [make.names()], so that the result stays a well
+#' formed data frame: a virtual corpus named `1976-1980` appears as
+#' `logDice_X1976.1980`. The `label` column and the `winner_*` / `loser_*`
+#' columns keep the name as it was given, so mapping between the two means
+#' applying the same transformation, e.g.
+#' `stats::setNames(make.names(labels), labels)`.
 #'
 #' \strong{Imputed values are relative to one analysis.} The floor is computed
 #' from the scores present in the result at hand. Analysing a node on its own and
@@ -156,6 +211,7 @@ setMethod(
            threshold = 2.0,
            localStopwords = c(),
            collocateFilterRegex = "^[:alnum:]+-?[:alnum:]*$",
+           minObservedExpectedRatio = 1,
            queryMissingScores = FALSE,
            missingScoreQuantile = 0.05,
            vcLabel = NA_character_,
@@ -163,13 +219,14 @@ setMethod(
            ...) {
     word <- frequency <- O <- NULL
 
-    if (!is.null(cacheAs) && !grepl("\\.rds$", cacheAs, ignore.case = TRUE)) {
-      cacheAs <- paste0(cacheAs, ".rds")
-    }
-
-    if (!is.null(cacheAs) && file.exists(cacheAs)) {
-      log_info(kco@verbose, sprintf("Loading collocation analysis from cache: %s\n", cacheAs))
-      return(readRDS(cacheAs))
+    cacheRecord <- NULL
+    if (!is.null(cacheAs)) {
+      cacheAs <- cacheAsFileName(cacheAs)
+      cacheRecord <- cacheAsRecord(environment(), list(...), kco)
+      cached <- readCacheAs(cacheAs, kco, cacheRecord, "collocation analysis")
+      if (!is.null(cached)) {
+        return(cached)
+      }
     }
 
     if (!exactFrequencies && (!is.na(withinSpan) && !is.null(withinSpan) && nzchar(withinSpan))) {
@@ -210,6 +267,7 @@ setMethod(
           node = node,
           vc = vc,
           minOccur = minOccur,
+          minObservedExpectedRatio = minObservedExpectedRatio,
           leftContextSize = leftContextSize,
           rightContextSize = rightContextSize,
           topCollocatesLimit = topCollocatesLimit,
@@ -304,6 +362,7 @@ setMethod(
           ...
         ) |>
           filter(O >= minOccur) |>
+          filterByObservedExpectedRatio(minObservedExpectedRatio) |>
           dplyr::arrange(dplyr::desc(logDice))
       } else {
         tibble()
@@ -335,6 +394,7 @@ setMethod(
           rightContextSize = rightContextSize,
           withinSpan = withinSpan,
           maxRecurse = maxRecurse - 1,
+          minObservedExpectedRatio = minObservedExpectedRatio,
           stopwords = stopwords,
           localStopwords = recurseWith$collocate,
           exactFrequencies = exactFrequencies,
@@ -358,6 +418,7 @@ setMethod(
 
         result <- result |>
           filter(O >= minOccur) |>
+          filterByObservedExpectedRatio(minObservedExpectedRatio) |>
           dplyr::arrange(dplyr::desc(logDice))
       }
     }
@@ -416,8 +477,7 @@ setMethod(
     }
 
     if (!is.null(cacheAs)) {
-      log_info(kco@verbose, sprintf("Saving collocation analysis to cache: %s\n", cacheAs))
-      saveRDS(result, cacheAs)
+      writeCacheAs(cacheAs, kco, cacheRecord, "collocation analysis", result)
     }
 
     result
@@ -1411,7 +1471,9 @@ matches2FreqTable <- function(matches,
       summarise(frequency = sum(frequency), .groups = "drop") |>
       arrange(desc(frequency))
   } else {
-    stopwordsTable <- dplyr::tibble(word = stopwords)
+    # as.character keeps the column when stopwords is empty: tibble(word = c())
+    # would drop it altogether and the anti_join below would not find it
+    stopwordsTable <- dplyr::tibble(word = as.character(stopwords))
 
     left <- tail(unlist(matches$tokens$left[index]), leftContextSize)
 
@@ -1432,6 +1494,25 @@ matches2FreqTable <- function(matches,
         dplyr::bind_rows(oldTable)
     }
   }
+}
+
+#' Text content of a KWIC snippet span
+#'
+#' Returns the text inside the span captured by `pattern`, with any nested
+#' markup removed, or `NA` if the snippet does not contain that span at all.
+#' The capture is greedy on purpose: the context spans contain further spans,
+#' such as `<span class="more">`, whose closing tag a lazy match would stop at.
+#'
+#' @param snippet KWIC snippet
+#' @param pattern regular expression whose first group captures the span content
+#' @return text content of the span, or `NA`
+#' @noRd
+htmlSpanContent <- function(snippet, pattern) {
+  content <- str_match(snippet, pattern)[1, 2]
+  if (is.na(content)) {
+    return(NA_character_)
+  }
+  stringr::str_trim(stringr::str_replace_all(content, "<[^>]*>", " "))
 }
 
 #' @importFrom magrittr debug_pipe
@@ -1472,26 +1553,31 @@ snippet2FreqTable <- function(snippet,
       summarise(frequency = sum(frequency), .groups = "drop") |>
       arrange(desc(frequency))
   } else {
-    stopwordsTable <- dplyr::tibble(word = stopwords)
-    match <-
-      str_match(
-        snippet,
-        '<span class="context-left">(<span class="more"></span>)?(.*[^ ]) *</span><span class="match"><mark>.*</mark></span><span class="context-right"> *([^<]*)'
-      )
+    # as.character keeps the column when stopwords is empty: tibble(word = c())
+    # would drop it altogether and the anti_join below would not find it
+    stopwordsTable <- dplyr::tibble(word = as.character(stopwords))
+
+    # The two context spans are taken one by one, up to the element that follows
+    # them, and stripped of whatever markup they contain. Matching the snippet
+    # as a whole used to require one particular shape and silently dropped every
+    # snippet of any other, which cost about 15% of the hits of a
+    # contains(<base/s=s>, ...) query: those are cut at the sentence boundary and
+    # carry a <span class="cutted"> inside the match, and a match filling the
+    # whole sentence leaves an empty context span (see issue #14).
+    leftContext <- htmlSpanContent(snippet, '<span class="context-left">(.*)</span><span class="match">')
+    rightContext <- htmlSpanContent(snippet, '<span class="context-right">(.*)</span>')
 
     left <- if (leftContextSize > 0) {
-      tail(unlist(str_split(match[1, 3], tokenizeRegex)), leftContextSize)
+      tail(unlist(str_split(leftContext, tokenizeRegex)), leftContextSize)
     } else {
       ""
     }
-    #    cat(paste("left:", left, "\n", collapse=" "))
 
     right <- if (rightContextSize > 0) {
-      head(unlist(str_split(match[1, 4], tokenizeRegex)), rightContextSize)
+      head(unlist(str_split(rightContext, tokenizeRegex)), rightContextSize)
     } else {
       ""
     }
-    #    cat(paste("right:", right, "\n", collapse=" "))
 
     if (is.na(left[1]) || is.na(right[1]) || length(left) + length(right) == 0) {
       oldTable
@@ -1592,8 +1678,13 @@ findExample <-
       q <- corpusQuery(kco, paste0("(", query[i], ")"), vc = vc[i], metadataOnly = FALSE)
       if (q@totalResults > 0) {
         q <- fetchNext(q, maxFetch = 50, randomizePageOrder = F)
+        # A failed request leaves collectedMatches without a snippet column at
+        # all, so that the example is character(0) rather than NA and assigning
+        # it fails with "replacement has length zero" (see issue #14).
         example <- as.character((q@collectedMatches)$snippet[1])
-        out[i] <- if (matchOnly) {
+        out[i] <- if (length(example) != 1 || is.na(example)) {
+          ""
+        } else if (matchOnly) {
           gsub(".*<mark>(.+)</mark>.*", "\\1", example)
         } else {
           stringr::str_replace(example, "<[^>]*>", "")

@@ -27,6 +27,7 @@
   threshold = 2,
   localStopwords = c(),
   collocateFilterRegex = "^[:alnum:]+-?[:alnum:]*$",
+  minObservedExpectedRatio = 1,
   queryMissingScores = FALSE,
   missingScoreQuantile = 0.05,
   vcLabel = NA_character_,
@@ -71,11 +72,27 @@
 
 \item{thresholdScore}{association score function (see \code{\link{association-score-functions}}) to use for computing the threshold that is applied for recursive collocation analysis calls (only applied when \code{maxRecurse > 0})}
 
-\item{threshold}{minimum value of \code{thresholdScore} function call to apply collocation analysis recursively (only applied when \code{maxRecurse > 0})}
+\item{threshold}{minimum value of \code{thresholdScore} function call to apply collocation analysis recursively (only applied when \code{maxRecurse > 0}).
+Note that the default score, \code{logDice}, expresses how salient a pair is
+rather than how surprising, so that a frequent collocate can pass it while
+co-occurring less often than expected. \code{minObservedExpectedRatio} keeps
+those out. See the "Salience versus surprise" section of
+\code{\link{association-score-functions}}.}
 
 \item{localStopwords}{vector of stopwords that will not be considered as collocates in the current function call, but that will not be passed to recursive calls}
 
 \item{collocateFilterRegex}{allow only collocates matching the regular expression}
+
+\item{minObservedExpectedRatio}{minimum ratio of observed to expected co-occurrence
+frequency a collocate must reach. Defaults to 1, which keeps only collocates
+that occur at least as often as expected by chance, corresponding to a
+non-negative \code{pmi}. Without it, frequent words can end up among the top
+collocates by \code{logDice} although the node does not attract them at all (see
+the "Salience versus surprise" section of
+\code{\link{association-score-functions}}). Raise it to demand a stronger
+contrast, e.g. 2 for collocates occurring at least twice as often as
+expected, or set it to 0 to switch the filter off and obtain the unfiltered
+result of earlier versions, e.g. in order to study repulsion.}
 
 \item{queryMissingScores}{if TRUE, attempt to retrieve corpus-based association scores for vc/collocate combinations that would otherwise be imputed, by re-querying the KorAP backend without applying the collocate frequency threshold}
 
@@ -83,7 +100,14 @@
 
 \item{vcLabel}{optional label override for the current virtual corpus (used internally when named VC collections are expanded)}
 
-\item{cacheAs}{path to an RDS file for caching the result. If the file already exists, the cached result is loaded and returned immediately without contacting the server. Otherwise the analysis is run normally and the result is saved to the file before returning. Defaults to \code{NULL} (no caching).}
+\item{cacheAs}{path to an RDS file to keep the result in. If the file exists and records the same call, it is read back instead of contacting the server; otherwise the query is run and its result stored there. Unlike the connection's \code{cache}, this file belongs to the caller, which is what keeps an analysis reproducible once the corpus has grown or the scores have changed. Defaults to \code{NULL} (no file).
+
+The analysis parameters are stored alongside the result. If they differ from
+those of the current call, the cached result would not be the one that was
+asked for, so it is recomputed and the file overwritten, with a warning
+naming the parameters that differ. Pass a different \code{cacheAs} file name
+to keep an existing analysis. Cache files written by RKorAPClient 1.3.0 do
+not contain the parameters yet and are used as they are.}
 
 \item{...}{more arguments will be passed to \code{\link[=collocationScoreQuery]{collocationScoreQuery()}}}
 }
@@ -99,7 +123,7 @@ Columns include (depending on the selected association measures):
 \item Ranks per label/measure with the pattern \code{rank_<label>_<measure>} (1 is best) and the corresponding percentile ranks \code{percentile_rank_<label>_<measure>}.
 \item Pairwise contrasts for two-label comparisons, e.g. \code{delta_<measure>}, \code{delta_rank_<measure>}, and \code{delta_percentile_rank_<measure>}.
 \item Summary columns describing the strongest labels per measure (\code{winner_*}, \code{runner_up_*}, \code{loser_*}, and \code{max_delta_*}), including winner/loser \code{webUIRequestUrl} columns. In multi-VC comparisons, missing per-label concordance URLs are derived from another available row URL for the same \code{node}/\code{collocate} by replacing the \code{cq} parameter with the target label's virtual corpus. Unsuffixed \code{winner_webUIRequestUrl} and \code{loser_webUIRequestUrl} columns are populated only when the score-based URL choices agree.
-\item \code{imputed_<label>}, \code{n_imputed}, and \code{imputed}: flags marking rows whose scores were not observed for some label but imputed (see \code{missingScoreQuantile}). Filter with \code{dplyr::filter(!imputed)} to keep only collocates attested in every compared virtual corpus.
+\item \code{imputed_<label>}: whether the score for that label was imputed rather than observed (see \code{missingScoreQuantile}). \code{n_imputed} counts them, and \code{imputed} is \code{n_imputed > 0}: it describes the node/collocate pair across all labels, not the label of the row it stands in. A row can therefore carry \code{imputed = TRUE} while its own scores are perfectly attested, because the pair is missing from some other virtual corpus - use \code{imputed_<label>} for the row itself. Filter with \code{dplyr::filter(!imputed)} to keep only collocates attested in every compared virtual corpus.
 \item Optional helper columns such as \code{query}, \code{example}, or \code{url} when example retrieval is requested.
 }
 }
@@ -144,7 +168,20 @@ values measure the distance to that floor rather than an attested difference.
 The \code{imputed}, \code{n_imputed} and \verb{imputed_<label>} columns mark these rows;
 \code{dplyr::filter(!imputed)} restricts the result to collocates attested
 everywhere, and \code{queryMissingScores = TRUE} replaces most imputed cells with
-scores actually retrieved from the backend.
+scores actually retrieved from the backend. Mind what \code{imputed} is about: the
+pair, not the row. It is \code{TRUE} as soon as one label lacks the collocate, and
+stays \code{TRUE} on the rows of the labels where it is attested, which is what
+makes \code{dplyr::filter(!imputed)} drop the pair as a whole. Whether the row at
+hand rests on an imputed score is what \verb{imputed_<label>} says.
+
+\strong{Per-label columns carry syntactic names.} The label in
+\verb{<measure>_<label>}, \verb{rank_<label>_<measure>} and \verb{imputed_<label>} is the one
+the caller gave, put through \code{\link[=make.names]{make.names()}}, so that the result stays a well
+formed data frame: a virtual corpus named \code{1976-1980} appears as
+\code{logDice_X1976.1980}. The \code{label} column and the \verb{winner_*} / \verb{loser_*}
+columns keep the name as it was given, so mapping between the two means
+applying the same transformation, e.g.
+\code{stats::setNames(make.names(labels), labels)}.
 
 \strong{Imputed values are relative to one analysis.} The floor is computed
 from the scores present in the result at hand. Analysing a node on its own and

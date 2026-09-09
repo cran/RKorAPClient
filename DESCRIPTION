@@ -1,7 +1,7 @@
 Package: RKorAPClient
 Type: Package
 Title: 'KorAP' Web Service Client Package
-Version: 1.3.0
+Version: 1.4.0
 Authors@R: 
     c(person(given = "Marc",
              family = "Kupietz",
@@ -24,21 +24,21 @@ BugReports: https://github.com/KorAP/RKorAPClient/issues
 Encoding: UTF-8
 Imports: R.cache, broom, ggplot2, tibble, magrittr, tidyr, dplyr,
         lubridate, highcharter, jsonlite, keyring, utils, httr2, curl,
-        methods, PTXQC, purrr, rlang, stringr, urltools, xml2
+        methods, purrr, rlang, stringr, urltools, xml2
 Suggests: lifecycle, testthat, tidyllm, htmlwidgets, rmarkdown, shiny,
         vcd, kableExtra, knitr, purrrlyr, raster, tidyverse, sf,
         geojsonsf, viridisLite
 Collate: 'logging.R' 'KorAPConnection.R' 'KorAPCorpusStats.R'
         'RKorAPClient-package.R' 'KorAPQuery.R' 'association-scores.R'
-        'ci.R' 'collocationAnalysis.R' 'collocationScoreQuery.R'
-        'hc_add_onclick_korap_search.R' 'hc_freq_by_year_ci.R' 'misc.R'
-        'reexports.R' 'textMetadata.R'
+        'cacheAs.R' 'ci.R' 'collocationAnalysis.R'
+        'collocationScoreQuery.R' 'hc_add_onclick_korap_search.R'
+        'hc_freq_by_year_ci.R' 'misc.R' 'reexports.R' 'textMetadata.R'
 Config/roxygen2/version: 8.1.0
 NeedsCompilation: no
-Packaged: 2026-08-31 20:12:17 UTC; kupietz
+Packaged: 2026-09-09 14:27:57 UTC; kupietz
 Author: Marc Kupietz [aut, cre],
   Nils Diewald [ctb],
   Leibniz Institute for the German Language [cph, fnd]
 Maintainer: Marc Kupietz <kupietz@ids-mannheim.de>
 Repository: CRAN
-Date/Publication: 2026-08-31 22:00:40 UTC
+Date/Publication: 2026-09-09 15:30:25 UTC
