@@ -17,7 +17,12 @@ percent(df)
 
 queryStringToLabel(data, pubDateOnly = FALSE, excludePubDate = FALSE)
 
-geom_freq_by_year_ci(mapping = aes(ymin = conf.low, ymax = conf.high), ...)
+geom_freq_by_year_ci(
+  mapping = aes(ymin = conf.low, ymax = conf.high),
+  showCI = TRUE,
+  smooth = FALSE,
+  ...
+)
 }
 \arguments{
 \item{df}{table returned from \code{\link[=frequencyQuery]{frequencyQuery()}}}
@@ -36,6 +41,14 @@ be a single number between 0 and 1.}
 \item{excludePubDate}{discard publication date constraints}
 
 \item{mapping}{Set of aesthetic mappings created by aes() or aes_(). If specified and inherit.aes = TRUE (the default), it is combined with the default mapping at the top level of the plot. You must supply mapping if there is no plot mapping.}
+
+\item{showCI}{Show confidence bands (default TRUE). FALSE retains only the
+frequency curves and points and does not require interval bounds.}
+
+\item{smooth}{Draw curved connections between annual observations (default
+FALSE). Uses natural cubic spline interpolation within each group and
+facet, on the plot's transformed scales. Missing values and missing calendar
+years break the curves. Points remain at the observed years.}
 
 \item{...}{Other arguments passed to geom_ribbon, geom_line, and geom_click_point.}
 }
@@ -69,6 +82,20 @@ Experimental convenience function for plotting typical frequency by year graphs 
 \details{
 Given a table with columns \code{f}, \code{conf.low}, and \code{conf.high}, \code{ipm} ads a \verb{column ipm}
 und multiplies conf.low and \code{conf.high} with 10^6.
+
+With \code{smooth = TRUE}, map numeric calendar years to x and frequency to y.
+Interpolation is only a display aid, not a fitted trend or a trend test.
+Confidence-band boundaries are interpolated between the supplied annual
+limits; they are not confidence intervals for unobserved dates. Observed
+annual values and limits are retained. As with other ggplot2 statistics,
+interpolation follows the axis scales, including logarithmic scales.
+Cubic curves can overshoot between annual values; use straight connections
+when the exact shape matters. Negative interpolated frequencies are clipped
+at zero (on a log axis, zero is outside the displayed range).
+Each group needs at most one observation per year; use colour, fill or group
+to distinguish expressions or corpora. No extrapolation is performed.
+The interpolation used by Highcharts may give a different curve between
+the same annual observations.
 }
 \examples{
 \dontrun{
@@ -102,7 +129,7 @@ queryStringToLabel(c("wegen dem [tt/p=NN]", "wegen des [tt/p=NN]"))
 library(ggplot2)
 kco <- KorAPConnection(verbose=TRUE)
 
-expand_grid(condition = c("textDomain = /Wirtschaft.*/", "textDomain != /Wirtschaft.*/"),
+expand_grid(condition = c("idsColumn = /Wirtschaft.*/", "idsColumn != /Wirtschaft.*/"),
             year = (2005:2011)) \%>\%
   cbind(frequencyQuery(kco, "[tt/l=Heuschrecke]",
                             paste0(.$condition," & pubDate in ", .$year)))  \%>\%

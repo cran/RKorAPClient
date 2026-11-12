@@ -90,6 +90,7 @@ filterByObservedExpectedRatio <- function(result, minObservedExpectedRatio) {
 #'   not contain the parameters yet and are used as they are.
 #' @param ...                    more arguments will be passed to [collocationScoreQuery()]
 #' @inheritParams collocationScoreQuery,KorAPConnection-method
+#' @inheritSection corpusQuery,KorAPConnection-method Slow queries
 #' @return
 #' A tibble where each row represents a candidate collocate for the requested node.
 #' Columns include (depending on the selected association measures):
@@ -169,9 +170,9 @@ filterByObservedExpectedRatio <- function(result, minObservedExpectedRatio) {
 #' \dontrun{
 #'
 #' # Find top collocates of "Packung" inside and outside the sports domain.
-#' KorAPConnection(verbose = TRUE) |>
+#' KorAPConnection(verbose = TRUE) |> auth() |>
 #'   collocationAnalysis("Packung",
-#'     vc = c("textClass=sport", "textClass!=sport"),
+#'     vc = c("dmozDomain = /sport.*/", "dmozDomain != /sport.*/"),
 #'     leftContextSize = 1, rightContextSize = 1, topCollocatesLimit = 20
 #'   ) |>
 #'   dplyr::filter(logDice >= 5)

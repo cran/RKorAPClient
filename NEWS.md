@@ -1,3 +1,20 @@
+# RKorAPClient 1.5.0
+
+- Added **experimental metadata-based dispersion analysis** with `dispersionAnalysis()`
+  and interactive plots with `hc_dispersion()` to compare distributions across
+  sources, countries and years, accounting for corpus-part sizes.
+
+- Added **interactive and static frequency bar charts** with `hc_freq_bar_ci()` and
+  `geom_freq_bar_ci()`, including confidence intervals. The ggplot2 time-series
+  helper now also supports curved connections between annual observations.
+
+- Running searches can now be **cancelled without entering the error debugger**.
+  Retrieval also handles server rate limits and failed page downloads more
+  reliably, with warnings for incomplete results and support for resuming them.
+
+- Internal: **Tests now run offline** using synthetic response fixtures and
+  local test servers. Live-server checks remain opt-in.
+
 # RKorAPClient 1.4.1
 
 - **follows the DeReKo-KorAP-2026-II release** of the German Reference Corpus, the default corpus of the default KorAP instance, which replaced the `textClass` metadata field by `dmozDomain` and `wikiDomain`. `corpusQuery()` now fetches both by default, so that the topic domain of matches is available again ([#31](https://github.com/KorAP/RKorAPClient/issues/31)).

@@ -195,7 +195,7 @@ setMethod("initialize", "KorAPConnection", function(.Object,
     resp <- httr2::request(.Object@KorAPUrl) |>
       httr2::req_url_path_append(kustvakt_auth_path) |>
       httr2::req_error(is_error = \(resp) FALSE) |>
-      httr2::req_perform()
+      performRequest(verbose = .Object@verbose)
     .Object@authorizationSupported <- (httr2::resp_status(resp) == 200)
 
     .Object@indexRevision <- .Object@welcome[[1]][["x-index-revision"]]
@@ -347,7 +347,7 @@ setMethod("auth", "KorAPConnection", function(kco, app_id = generic_kor_app_id, 
       kco@oauthScope <- scope
       req <- request(kco@apiUrl) |>
         oauthRefresh(client, scope, kco) |>
-        req_perform()
+        performRequest(verbose = kco@verbose)
       log_info(kco@verbose, "Client authorized. Short lived access token will be refreshed automatically.")
     }
   } else {
@@ -381,7 +381,7 @@ warnIfNotAuthorized <- function(kco) {
   if (kco@authorizationSupported & is.null(kco@accessToken) & is.null(kco@oauthClient)) {
     warning(
       paste0(
-        "In order to receive KWICSs also from corpora with restricted licenses, you may need to\n",
+        "In order to receive KWICs also from corpora with restricted licenses, you may need to\n",
         "authorize your application with an access token or the auth() method.\n",
         "To generate an access token, login to KorAP and navigate to KorAP's OAuth settings <",
         kco@KorAPUrl,
@@ -405,6 +405,51 @@ KorAPCacheSubDir <- function() {
 
 setGeneric("apiCall", function(kco, ...) standardGeneric("apiCall"))
 
+# how often a request is tried, and how long it may wait in all, when the
+# server answers 429 (Too Many Requests) or 503 (Service Unavailable)
+maxApiTries <- 10
+maxRetryWaitSeconds <- 600
+
+# Perform a request without entering the error debugger on a user interrupt.
+# R's default interrupt action runs options(error), including when curl polls
+# for cancellation inside R_ToplevelExec. An interrupt handler alone cannot
+# prevent that first debugger entry. Scope the option to this request and let
+# native interrupts unwind normally, so callers can still catch them and an
+# interrupted script cannot continue with NULL or incomplete results.
+# Restore the user's error handler before ordinary errors are handled, too.
+performRequest <- function(req, verbose = FALSE) {
+  previous <- options(error = NULL)
+  on.exit(options(previous), add = TRUE)
+  withCallingHandlers(
+    httr2::req_perform(req),
+    error = function(e) options(previous),
+    interrupt = function(e) log_info(verbose, "\nRequest cancelled by user.\n")
+  )
+}
+
+#' Seconds to wait before retrying a request, as the server asks
+#'
+#' Reads the Retry-After header of a 429 or 503 response. Kustvakt rounds it
+#' down to full seconds, hence the extra second.
+#'
+#' @param resp httr2 response
+#' @param verbose logical that decides if the wait is reported
+#' @return seconds to wait, or `NA` to let httr2 back off exponentially
+#' @noRd
+retryAfterSeconds <- function(resp, verbose = FALSE) {
+  seconds <- suppressWarnings(as.numeric(httr2::resp_header(resp, "Retry-After", default = NA)))
+  if (is.na(seconds)) {
+    return(NA)
+  }
+  seconds <- seconds + 1
+  log_info(
+    verbose, "\n", ansi("The KorAP server asks to slow down", "yellow"),
+    " (", httr2::resp_status(resp), " ", httr2::resp_status_desc(resp), "), retrying in ",
+    seconds, "s\n"
+  )
+  seconds
+}
+
 ## quiets concerns of R CMD check re: the .'s that appear in pipelines
 utils::globalVariables(c("."))
 
@@ -415,11 +460,14 @@ utils::globalVariables(c("."))
 #' @param url request url
 #' @param json logical that determines if JSON result is expected
 #' @param getHeaders logical that determines if headers and content should be returned (as a list)
+#' @param cache whether to use the local response cache
+#' @param timeout request timeout in seconds
+#' @param verbose whether to report cancellation in the progress output
 #' @importFrom jsonlite fromJSON
 #' @importFrom curl has_internet
 #' @import httr2
 #' @export
-setMethod("apiCall", "KorAPConnection", function(kco, url, json = TRUE, getHeaders = FALSE, cache = kco@cache, timeout = kco@timeout) {
+setMethod("apiCall", "KorAPConnection", function(kco, url, json = TRUE, getHeaders = FALSE, cache = kco@cache, timeout = kco@timeout, verbose = kco@verbose) {
   result <- ""
 
   # Handle caching if enabled
@@ -441,10 +489,18 @@ setMethod("apiCall", "KorAPConnection", function(kco, url, json = TRUE, getHeade
   # disable the curl low-speed abort (r-curl kills "stalled" transfers
   # with less than 1 byte/s after 600s by default): long running
   # searches are guarded by the overall request timeout instead
+  # Kustvakt limits the number of requests per access token and answers
+  # with 429 and a Retry-After header beyond that, so that fetching many
+  # pages waits for the limit to recover instead of failing
   req <- httr2::request(url) |>
     httr2::req_user_agent(kco@userAgent) |>
     httr2::req_options(low_speed_limit = 0, low_speed_time = 0) |>
-    httr2::req_timeout(timeout)
+    httr2::req_timeout(timeout) |>
+    httr2::req_retry(
+      max_tries = maxApiTries,
+      max_seconds = maxRetryWaitSeconds,
+      after = function(resp) retryAfterSeconds(resp, kco@verbose)
+    )
 
   if (!is.null(kco@oauthClient)) {
     req <- req |> oauthRefresh(kco@oauthClient, scope = kco@oauthScope, kco)
@@ -452,7 +508,7 @@ setMethod("apiCall", "KorAPConnection", function(kco, url, json = TRUE, getHeade
     req <- req |> httr2::req_auth_bearer_token(kco@accessToken)
   }
 
-  resp <- tryCatch(req |> httr2::req_perform(),
+  resp <- tryCatch(req |> performRequest(verbose = verbose),
     error = function(e) {
       if (is.null(e$resp)) {
         message(paste("Error: ", e$message, collapse = " "), if ("parent" %in% names(e)) paste0("\n", e$parent$message) else "")
@@ -472,7 +528,8 @@ setMethod("apiCall", "KorAPConnection", function(kco, url, json = TRUE, getHeade
       result <- tryCatch(
         resp |> httr2::resp_body_json(),
         error = function(e) {
-          message("Failed to parse json with error details: ", e$message)
+          # Kustvakt labels some plain text error messages as JSON
+          message("Error details: ", trimws(resp |> httr2::resp_body_string()))
           return(NULL)
         }
       )

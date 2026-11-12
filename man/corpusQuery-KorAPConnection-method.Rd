@@ -18,8 +18,8 @@
   KorAPUrl,
   metadataOnly = TRUE,
   ql = if (missing(KorAPUrl)) "poliqarp" else httr2::url_parse(KorAPUrl)$query$ql,
-  fields = c("corpusSigle", "textSigle", "pubDate", "pubPlace", "availability",
-    "textClass", "dmozDomain", "wikiDomain", "snippet", "tokens"),
+  fields = c("corpusSigle", "corpusTitle", "textSigle", "pubDate", "pubPlace",
+    "availability", "textClass", "dmozDomain", "wikiDomain", "snippet", "tokens"),
   accessRewriteFatal = TRUE,
   verbose = kco@verbose,
   expand = length(vc) != length(query),
@@ -28,7 +28,7 @@
 )
 }
 \arguments{
-\item{kco}{\code{\link[=KorAPConnection]{KorAPConnection()}} object (obtained e.g. from \code{KorAPConnection()}}
+\item{kco}{\code{\link[=KorAPConnection]{KorAPConnection()}} object (obtained e.g. from \code{KorAPConnection()})}
 
 \item{query}{string that contains the corpus query. The query language depends on the \code{ql} parameter. Either \code{query} must be provided or \code{KorAPUrl}.}
 
@@ -37,13 +37,13 @@
 \item{KorAPUrl}{instead of providing the query and vc string parameters, you can also simply copy a KorAP query URL from your browser and use it here (and in \code{KorAPConnection}) to provide all necessary information for the query.}
 
 \item{metadataOnly}{logical that determines whether queries should return only metadata without any snippets. This can also be useful to prevent access rewrites. Note that the default value is TRUE.
-If you want your corpus queries to return not only metadata, but also KWICS, you need to authorize
+If you want your corpus queries to return not only metadata, but also KWICs, you need to authorize
 your RKorAPClient application as explained in the
 \href{https://github.com/KorAP/RKorAPClient#authorization}{authorization section}
 of the RKorAPClient Readme on GitHub and set the \code{metadataOnly} parameter to
 \code{FALSE}.}
 
-\item{ql}{string to choose the query language (see \href{https://github.com/KorAP/Kustvakt/wiki/Service:-Search-GET#user-content-parameters}{section on Query Parameters} in the Kustvakt-Wiki for possible values.}
+\item{ql}{string to choose the query language (see \href{https://github.com/KorAP/Kustvakt/wiki/Service:-Search-GET#user-content-parameters}{section on Query Parameters} in the Kustvakt-Wiki for possible values).}
 
 \item{fields}{character vector specifying which metadata fields to retrieve for each match.
 Available fields depend on the corpus. For DeReKo (German Reference Corpus), possible fields include:
@@ -52,13 +52,15 @@ Available fields depend on the corpus. For DeReKo (German Reference Corpus), pos
 \item{\strong{Publication info}:}{\code{author}, \code{editor}, \code{title}, \code{docTitle}, \code{corpusTitle} - authorship and titles}
 \item{\strong{Temporal data}:}{\code{pubDate}, \code{creationDate} - when text was published/created}
 \item{\strong{Publication details}:}{\code{pubPlace}, \code{publisher}, \code{reference} - where/how published}
-\item{\strong{Text classification}:}{\code{textClass}, \code{dmozDomain}, \code{wikiDomain}, \code{textType}, \code{textTypeArt}, \code{textDomain}, \code{textColumn} - topic domain, genre, text type and column}
-\item{\strong{Adminstrative and technical info}:}{\code{corpusEditor}, \code{availability}, \code{language}, \code{foundries} - access rights and annotations}
+\item{\strong{Text classification}:}{\code{textClass}, \code{dmozDomain}, \code{wikiDomain}, \code{textType}, \code{textTypeArt}, \code{idsColumn} - topic domain, genre, text type and column}
+\item{\strong{Administrative and technical info}:}{\code{corpusEditor}, \code{availability}, \code{language}, \code{foundries} - access rights and annotations}
 \item{\strong{Content data}:}{\code{snippet}, \code{tokens}, \code{tokenSource}, \code{externalLink} - actual text content, tokenization, and link to source text}
 \item{\strong{System data}:}{\code{indexCreationDate}, \code{indexLastModified} - corpus indexing info}
 }
+Current DeReKo releases use \code{dmozDomain} and \code{wikiDomain} for topic domains;
+\code{textClass} is retained in the default request for older corpus releases.
 Use \code{c("textSigle", "pubDate", "author")} to retrieve multiple fields.
-Default fields provide basic text identification and publication metadata. The actual text content (\code{snippet} and \code{tokens}) are activated by default  if \code{metadataOnly} is set to \code{FALSE}.}
+Default fields provide basic text identification and publication metadata. The actual text content fields (\code{snippet} and \code{tokens}) are activated by default if \code{metadataOnly} is set to \code{FALSE}.}
 
 \item{accessRewriteFatal}{abort if query or given vc had to be rewritten due to insufficient rights (not yet implemented).}
 
@@ -69,20 +71,43 @@ Default fields provide basic text identification and publication metadata. The a
 \item{as.df}{return result as data frame instead of as S4 object?}
 
 \item{context}{string that specifies the size of the left and the right context returned in \code{snippet}
-(provided that \code{metadataOnly} is set to \code{false} and that the necessary access right are  met).
-The format of the context size specifcation (e.g. \verb{3-token,3-token}) is described in the \href{https://github.com/KorAP/Kustvakt/wiki/Service:-Search-GET}{Service: Search GET documentation of the Kustvakt Wiki}.
-If the parameter is not set, the default context size secification of the KorAP server instance will be used.
+(provided that \code{metadataOnly} is set to \code{false} and that the necessary access rights are met).
+The format of the context size specification (e.g. \verb{3-token,3-token}) is described in the \href{https://github.com/KorAP/Kustvakt/wiki/Service:-Search-GET}{Service: Search GET documentation of the Kustvakt Wiki}.
+If the parameter is not set, the default context size specification of the KorAP server instance will be used.
 Note that you cannot overrule the maximum context size set in the KorAP server instance,
 as this is typically legally motivated.}
 }
 \value{
-Depending on the \code{as.df} parameter, a tibble or a \code{\link[=KorAPQuery]{KorAPQuery()}} object that, among other information, contains the total number of results in \verb{@totalResults}. The resulting object can be used to fetch all query results (with \code{\link[=fetchAll]{fetchAll()}}) or the next page of results (with \code{\link[=fetchNext]{fetchNext()}}).
+Depending on the \code{as.df} parameter, a tibble or a \code{\link[=KorAPQuery]{KorAPQuery()}} object that, among other information, contains the total number of results in \verb{@totalResults}. Multiple queries return a summary table. With \code{as.df = FALSE}, it also retains query states for \code{\link[=fetchAll]{fetchAll()}}, \code{\link[=fetchNext]{fetchNext()}}, \code{\link[=fetchSamplePages]{fetchSamplePages()}} and \code{\link[=dispersionAnalysis]{dispersionAnalysis()}}. Names of the query vector label the comparison columns. With \code{as.df = TRUE}, only the summary is retained.
 A corresponding URL to be used within a web browser is contained in \verb{@webUIRequestUrl}
 Please make sure to check \verb{$collection$rewrites} to see if any unforeseen access rewrites of the query's virtual corpus had to be performed.
 }
 \description{
 \strong{\code{corpusQuery}} performs a corpus query via a connection to a KorAP-API-server
 }
+\section{Slow queries}{
+
+Complex queries can take minutes on large corpora, especially on DeLiKo@DNB
+(\verb{https://korap.dnb.de}), or exceed the time limit of the server, which leaves
+the results incomplete. As long as KorAP does not offer sampling by itself,
+a workaround is to restrict \code{vc} to a pseudo-random sample of texts, selected
+by the last digit of their sigle: \code{"textSigle = /.*5/"} selects about a tenth,
+\code{"textSigle = /.*[0-4]/"} about half of the texts. Combine the sample with
+other conditions using \code{&}, e.g. \code{"textType = /.*Krimi.*/ & textSigle = /.*5/"}.
+Relative frequencies, and association scores that do not depend on the corpus
+size, such as logDice, remain estimates for the whole (virtual) corpus,
+whereas absolute frequencies, and with them log-likelihood scores, shrink with
+the sample. A sample saves about as much time as it leaves out if the server
+has recently read the index of the query terms, e.g. for the same query on
+another virtual corpus, but hardly any time otherwise, when most of the time
+goes into reading the index from disk. It thus pays off in series of queries
+on the same terms, such as a \code{\link[=frequencyQuery]{frequencyQuery()}} over many years or a
+\code{\link[=collocationAnalysis]{collocationAnalysis()}}. Repeating a query on the same \code{vc} takes no time
+anyway, as its result comes from the local cache (see the \code{cache} parameter
+of \code{\link[=KorAPConnection]{KorAPConnection()}}). Queries that are fast anyway do not get faster,
+because selecting the sample takes some time itself.
+}
+
 \examples{
 \dontrun{
 

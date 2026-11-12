@@ -12,21 +12,41 @@
   conf.level = 0.95,
   as.alternatives = FALSE,
   cacheAs = NULL,
+  dispersionBy = NULL,
+  dispersionFunctions = defaultDispersionFunctions(),
+  dispersionExactFrequencies = TRUE,
+  searchHitsSampleLimit = 20000,
+  seed = 7,
   ...
 )
 }
 \arguments{
-\item{kco}{\code{\link[=KorAPConnection]{KorAPConnection()}} object (obtained e.g. from \code{KorAPConnection()}}
+\item{kco}{\code{\link[=KorAPConnection]{KorAPConnection()}} object (obtained e.g. from \code{KorAPConnection()})}
 
-\item{query}{corpus query string(s.) (can be a vector). The query language depends on the \code{ql} parameter. Either \code{query} must be provided or \code{KorAPUrl}.}
+\item{query}{corpus query string(s) (can be a vector). The query language depends on the \code{ql} parameter. Either \code{query} must be provided or \code{KorAPUrl}.}
 
 \item{vc}{virtual corpus definition(s) (can be a vector)}
 
-\item{conf.level}{confidence level of the returned confidence interval (passed through \code{\link[=ci]{ci()}}  to \code{\link[=prop.test]{prop.test()}}).}
+\item{conf.level}{confidence level of the returned confidence interval (passed through \code{\link[=ci]{ci()}} to \code{\link[=prop.test]{prop.test()}}).}
 
 \item{as.alternatives}{LOGICAL that specifies if the query terms should be treated as alternatives. If \code{as.alternatives} is TRUE, the sum over all query hits, instead of the respective vc token sizes is used as total for the calculation of relative frequencies.}
 
 \item{cacheAs}{path to an RDS file to keep the result in. If the file exists and records the same call, it is read back instead of contacting the server; otherwise the query is run and its result stored there. Unlike the connection's \code{cache}, this file belongs to the caller, which is what keeps an analysis reproducible once the corpus has grown or the scores have changed. Defaults to \code{NULL} (no file).}
+
+\item{dispersionBy}{Optional \code{\link[=corpusPartition]{corpusPartition()}} table or named list of tables.
+Adds a \code{dispersion} list column computed by \code{\link[=dispersionQuery]{dispersionQuery()}}. Each
+partition's base corpus must match the frequency row's \code{vc}.}
+
+\item{dispersionFunctions}{Named list of replaceable dispersion functions;
+see \code{\link[=defaultDispersionFunctions]{defaultDispersionFunctions()}}.}
+
+\item{dispersionExactFrequencies}{Use exact part counts for the optional
+dispersion analysis; \code{FALSE} uses metadata sampling.}
+
+\item{searchHitsSampleLimit}{Maximum number of metadata hits to download for
+the optional dispersion analysis; see \code{\link[=dispersionQuery]{dispersionQuery()}}.}
+
+\item{seed}{Seed for optional dispersion sampling.}
 
 \item{...}{further arguments passed to or from other methods (see \code{\link[=corpusQuery]{corpusQuery()}}), most notably \code{expand}, a logical that decides if \code{query} and \code{vc} parameters are expanded to all of their combinations. It defaults to \code{TRUE}, if \code{query} and \code{vc} have different lengths, and to \code{FALSE} otherwise.}
 }
@@ -34,22 +54,47 @@
 A tibble, with each row containing the following result columns for query and vc combinations:
 \itemize{
 \item \strong{query}: the query string used for the frequency analysis.
+\item \strong{variant}: query-vector names, when supplied, for display labels.
+\item \strong{as.alternatives}: denominator mode, retained for plotting helpers.
 \item \strong{totalResults}: absolute frequency of query matches in the vc.
-\item \strong{vc}:  virtual corpus used for the query.
+\item \strong{vc}: virtual corpus used for the query.
 \item \strong{queryDuration}: client-side duration of the request in seconds.
 \item \strong{webUIRequestUrl}: URL of the corresponding web UI request with respect to query and vc.
 \item \strong{total}: total number of words in vc.
-\item \strong{f}:  relative frequency of query matches in the vc.
-\item \strong{conf.low}:  lower bound of the confidence interval for the relative frequency, given \code{conf.level}.
-\item \strong{conf.high}:  upper bound of the confidence interval for the relative frequency, given \code{conf.level}.
+\item \strong{f}: relative frequency of query matches in the vc.
+\item \strong{conf.low}: lower bound of the confidence interval for the relative frequency, given \code{conf.level}.
+\item \strong{conf.high}: upper bound of the confidence interval for the relative frequency, given \code{conf.level}.
 }
 }
 \description{
 \strong{\code{frequencyQuery}} combines \code{\link[=corpusQuery]{corpusQuery()}}, \code{\link[=corpusStats]{corpusStats()}} and
 \code{\link[=ci]{ci()}} to compute a tibble with the absolute and relative frequencies and
-confidence intervals of one ore multiple search terms across one or multiple
+confidence intervals of one or multiple search terms across one or multiple
 virtual corpora.
 }
+\section{Slow queries}{
+
+Complex queries can take minutes on large corpora, especially on DeLiKo@DNB
+(\verb{https://korap.dnb.de}), or exceed the time limit of the server, which leaves
+the results incomplete. As long as KorAP does not offer sampling by itself,
+a workaround is to restrict \code{vc} to a pseudo-random sample of texts, selected
+by the last digit of their sigle: \code{"textSigle = /.*5/"} selects about a tenth,
+\code{"textSigle = /.*[0-4]/"} about half of the texts. Combine the sample with
+other conditions using \code{&}, e.g. \code{"textType = /.*Krimi.*/ & textSigle = /.*5/"}.
+Relative frequencies, and association scores that do not depend on the corpus
+size, such as logDice, remain estimates for the whole (virtual) corpus,
+whereas absolute frequencies, and with them log-likelihood scores, shrink with
+the sample. A sample saves about as much time as it leaves out if the server
+has recently read the index of the query terms, e.g. for the same query on
+another virtual corpus, but hardly any time otherwise, when most of the time
+goes into reading the index from disk. It thus pays off in series of queries
+on the same terms, such as a \code{\link[=frequencyQuery]{frequencyQuery()}} over many years or a
+\code{\link[=collocationAnalysis]{collocationAnalysis()}}. Repeating a query on the same \code{vc} takes no time
+anyway, as its result comes from the local cache (see the \code{cache} parameter
+of \code{\link[=KorAPConnection]{KorAPConnection()}}). Queries that are fast anyway do not get faster,
+because selecting the sample takes some time itself.
+}
+
 \examples{
 \dontrun{
 

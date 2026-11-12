@@ -1,7 +1,7 @@
 Package: RKorAPClient
 Type: Package
 Title: 'KorAP' Web Service Client Package
-Version: 1.4.1
+Version: 1.5.0
 Authors@R: 
     c(person(given = "Marc",
              family = "Kupietz",
@@ -25,20 +25,24 @@ Encoding: UTF-8
 Imports: R.cache, broom, ggplot2, tibble, magrittr, tidyr, dplyr,
         lubridate, highcharter, jsonlite, keyring, utils, httr2, curl,
         methods, purrr, rlang, stringr, urltools, xml2
-Suggests: lifecycle, testthat, tidyllm, htmlwidgets, rmarkdown, shiny,
-        vcd, kableExtra, knitr, purrrlyr, raster, tidyverse, sf,
-        geojsonsf, viridisLite
+Suggests: callr, chromote, lifecycle, pkgload, testthat (>= 3.1.7),
+        tidyllm, htmlwidgets, rmarkdown, shiny, vcd, kableExtra, knitr,
+        purrrlyr, raster, tidyverse, sf, geojsonsf, viridisLite, vcr
+        (>= 2.0.0), webfakes, withr
 Collate: 'logging.R' 'KorAPConnection.R' 'KorAPCorpusStats.R'
         'RKorAPClient-package.R' 'KorAPQuery.R' 'association-scores.R'
-        'cacheAs.R' 'ci.R' 'collocationAnalysis.R'
-        'collocationScoreQuery.R' 'hc_add_onclick_korap_search.R'
-        'hc_freq_by_year_ci.R' 'misc.R' 'reexports.R' 'textMetadata.R'
-Config/roxygen2/version: 8.1.0
+        'cacheAs.R' 'chart-helpers.R' 'ci.R' 'collocationAnalysis.R'
+        'collocationScoreQuery.R' 'dispersion-metadata.R'
+        'dispersion-scores.R' 'dispersionQuery.R' 'fetchSamplePages.R'
+        'geom_freq_bar_ci.R' 'hc_add_onclick_korap_search.R'
+        'hc_dispersion.R' 'hc_freq_bar_ci.R' 'hc_freq_by_year_ci.R'
+        'misc.R' 'reexports.R' 'textMetadata.R'
+Config/roxygen2/version: 8.1.1
 NeedsCompilation: no
-Packaged: 2026-09-23 11:49:47 UTC; kupietz
+Packaged: 2026-11-12 10:52:06 UTC; kupietz
 Author: Marc Kupietz [aut, cre],
   Nils Diewald [ctb],
   Leibniz Institute for the German Language [cph, fnd]
 Maintainer: Marc Kupietz <kupietz@ids-mannheim.de>
 Repository: CRAN
-Date/Publication: 2026-09-23 14:40:17 UTC
+Date/Publication: 2026-11-12 11:10:16 UTC
