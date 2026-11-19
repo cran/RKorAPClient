@@ -1,3 +1,28 @@
+# RKorAPClient 1.5.1
+
+- Keep interactive frequency and dispersion charts compatible with both the
+  existing highcharter theme functions and the forthcoming preset-based API.
+  Clarify the separate highcharter and Highcharts licenses and link their terms
+  from the README and interactive chart documentation.
+- Report planned and ongoing maintenance from an optional public Kalamar
+  endpoint, with `maintenanceInfo()` for inspecting the schedule. Notices are
+  short-lived, do not require a login and never prevent corpus queries.
+- An expired stored access token no longer breaks the connection:
+  `KorAPConnection()` warns and continues without authorization, so queries
+  that need no login keep working (#32).
+- Frequency and other metadata-only results as well as corpus statistics are
+  cached independently of the access token, so renewing it no longer discards
+  their cache (#32).
+- The local cache of API responses is no longer discarded with every minor
+  release. Responses are still refetched when the corpus index changes. The
+  cache stays in the `RKorAPClient_1.5` directory. To carry over a 1.4 cache:
+
+  ```r
+  root <- R.cache::getCacheRootPath()
+  new <- file.path(root, "RKorAPClient_1.5"); dir.create(new, showWarnings = FALSE)
+  file.copy(list.files(file.path(root, "RKorAPClient_1.4"), full.names = TRUE), new)
+  ```
+
 # RKorAPClient 1.5.0
 
 - Added **experimental metadata-based dispersion analysis** with `dispersionAnalysis()`

@@ -1,7 +1,7 @@
 Package: RKorAPClient
 Type: Package
 Title: 'KorAP' Web Service Client Package
-Version: 1.5.0
+Version: 1.5.1
 Authors@R: 
     c(person(given = "Marc",
              family = "Kupietz",
@@ -36,13 +36,13 @@ Collate: 'logging.R' 'KorAPConnection.R' 'KorAPCorpusStats.R'
         'dispersion-scores.R' 'dispersionQuery.R' 'fetchSamplePages.R'
         'geom_freq_bar_ci.R' 'hc_add_onclick_korap_search.R'
         'hc_dispersion.R' 'hc_freq_bar_ci.R' 'hc_freq_by_year_ci.R'
-        'misc.R' 'reexports.R' 'textMetadata.R'
+        'maintenance.R' 'misc.R' 'reexports.R' 'textMetadata.R'
 Config/roxygen2/version: 8.1.1
 NeedsCompilation: no
-Packaged: 2026-11-12 10:52:06 UTC; kupietz
+Packaged: 2026-11-19 10:54:56 UTC; kupietz
 Author: Marc Kupietz [aut, cre],
   Nils Diewald [ctb],
   Leibniz Institute for the German Language [cph, fnd]
 Maintainer: Marc Kupietz <kupietz@ids-mannheim.de>
 Repository: CRAN
-Date/Publication: 2026-11-12 11:10:16 UTC
+Date/Publication: 2026-11-19 11:30:17 UTC
